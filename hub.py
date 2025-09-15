@@ -7,89 +7,115 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-# ---------- Résolution robuste du chemin + chargement avec invalidation ----------
+# ================== Assistant de chemin ultra-robuste ==================
 from pathlib import Path
-import pandas as pd
-import numpy as np
-import streamlit as st
-import plotly.express as px
-import plotly.graph_objects as go
 import os
+import streamlit as st
+import pandas as pd
 
-# 1) Sélecteur dans la sidebar
 st.sidebar.subheader("⚙️ Source des données (local)")
-# Mets ici TON chemin souhaité (celui que tu as indiqué)
-DEFAULT_USER_INPUT = "/Users/abbesaine/Desktop/Hub/Football-Hub-all-in-one.xlsx"
-user_input_path = st.sidebar.text_input("Chemin Excel", DEFAULT_USER_INPUT).strip()
 
-def resolve_excel_path(filename="Football-Hub-all-in-one.xlsx", user_input=None):
-    """Retourne (best_path: Path|None, tried_paths: list[Path], found_candidates: list[Path])"""
+# 0) Debug — où tourne l'app ?
+with st.sidebar.expander("🧭 Debug chemin (où suis-je ?)", expanded=False):
+    st.write("Home :", str(Path.home()))
+    # Note: __file__ might not be available in all Streamlit environments.
+    # Using a fallback.
+    try:
+        script_path = __file__
+    except NameError:
+        script_path = "N/A (Streamlit execution context)"
+    st.write("Script :", script_path)
+    st.write("CWD :", os.getcwd())
+
+# 1) Chemin saisi par l'utilisateur (optionnel)
+DEFAULT_INPUT = "/Users/abbesaine/Desktop/Hub/Football-Hub-all-in-one.xlsx"
+user_input_path = st.sidebar.text_input("Chemin Excel (optionnel)", DEFAULT_INPUT).strip()
+
+FILENAME = "Football-Hub-all-in-one.xlsx"
+
+def resolve_excel_path(filename=FILENAME, user_input=None):
     tried, found = [], []
 
-    def _add(p):
-        p = Path(p).expanduser()
+    def _try(p):
+        p = Path(p).expanduser().resolve()
         tried.append(p)
         if p.exists():
             found.append(p)
 
-    here = Path(__file__).parent
-    home = Path.home()
-    cwd  = Path.cwd()
+    # Use os.getcwd() and os.path.dirname(__file__) as fallbacks for here/cwd
+    try:
+        here = Path(__file__).parent.resolve()
+    except NameError:
+        here = Path(os.getcwd()).resolve()
+    home = Path.home().resolve()
+    cwd  = Path.cwd().resolve()
 
-    # Si l'utilisateur fournit un chemin complet, on essaie d'abord
+    # a) chemin explicite (si fourni)
     if user_input:
-        _add(user_input)
+        _try(user_input)
 
-    # Emplacements classiques
-    _add(cwd / filename)
-    _add(here / filename)
-    _add(home / "Desktop" / filename)
-    _add(home / "Desktop" / "Hub" / filename)
-    _add(home / "Desktop" / "c1-hub" / filename)
-    _add(home / "Documents" / filename)
-    _add(home / "Downloads" / filename)
+    # b) emplacements probables (local + iCloud Desktop)
+    _try(cwd / filename)
+    _try(here / filename)
+    _try(home / "Desktop" / filename)
+    _try(home / "Desktop" / "Hub" / filename)
+    _try(home / "Desktop" / "c1-hub" / filename)
+    _try(home / "Documents" / filename)
+    _try(home / "Downloads" / filename)
 
-    # iCloud Desktop (macOS)
-    _add(home / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Desktop" / filename)
-    _add(home / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Desktop" / "Hub" / filename)
-    _add(home / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Desktop" / "c1-hub" / filename)
+    # macOS iCloud Desktop
+    icloud = home / "Library" / "Mobile Documents" / "com~apple~CloudDocs"
+    _try(icloud / "Desktop" / filename)
+    _try(icloud / "Desktop" / "Hub" / filename)
+    _try(icloud / "Desktop" / "c1-hub" / filename)
 
-    # Si rien trouvé, on fouille rapidement Desktop/Documents/Downloads
+    # c) plan B : petit scan ciblé (rapide) si rien trouvé
     if not found:
-        for root in [home/"Desktop", home/"Documents", home/"Downloads", cwd, here]:
+        for root in [
+            home / "Desktop", home / "Documents", home / "Downloads",
+            icloud / "Desktop", cwd, here
+        ]:
             if root.exists():
-                for p in root.rglob("*.xlsx"):
-                    if p.name.lower() == filename.lower():
-                        found.append(p)
-                        break
+                # 1) try exact name
+                for p in root.rglob(filename):
+                    found.append(p)
+                    break
+                if found:
+                    break
+                # 2) try patterns proches
+                for p in root.rglob("Football*Hub*one*.xlsx"):
+                    found.append(p)
+                    break
             if found:
                 break
 
     best = found[0] if found else None
     return best, tried, found
 
-excel_path, tried_paths, candidates = resolve_excel_path(
-    filename="Football-Hub-all-in-one.xlsx",
-    user_input=user_input_path if user_input_path else None
-)
+excel_path, tried_paths, candidates = resolve_excel_path(user_input=user_input_path or None)
 
-# 2) Si rien trouvé : feedback + uploader
-uploaded = None
-if excel_path is None:
-    st.error(f"📂 Fichier introuvable.\n\n"
-             f"Chemin saisi : `{user_input_path or '(vide)'}`\n\n"
-             "✅ Essaye l’un des trucs suivants :\n"
-             "• Corrige le chemin ci-dessus (copie le chemin exact depuis le Finder : clic droit + ⌥ Option → « Copier le nom du chemin »)\n"
-             "• Déplace le fichier à côté du script .py\n"
-             "• Ou importe le fichier ci-dessous.")
-    with st.expander("Chemins testés (debug)"):
+# 2) UI : choix entre candidats trouvés / upload / entrée manuelle
+picked_path = None
+if candidates:
+    st.sidebar.success("✅ Fichier(s) trouvé(s)")
+    # trie par date de modif (plus récent en premier)
+    candidates = sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)
+    options = [str(p) for p in candidates]
+    picked_str = st.sidebar.selectbox("Choisir un fichier détecté :", options, index=0)
+    picked_path = Path(picked_str)
+else:
+    st.sidebar.warning("📂 Aucun fichier trouvé automatiquement.")
+    with st.sidebar.expander("Chemins testés", expanded=False):
         for p in tried_paths:
             st.write("—", str(p))
-    uploaded = st.file_uploader("…ou importer le fichier Excel", type=["xlsx"])
-    if not uploaded:
-        st.stop()
+    uploaded = st.sidebar.file_uploader("…ou importer le fichier Excel", type=["xlsx"])
+    if uploaded:
+        picked_path = uploaded  # fichier en mémoire
+    elif user_input_path:
+        # dernier recours : si un chemin est saisi mais introuvable, on l’affiche clairement
+        st.sidebar.error(f"Chemin saisi introuvable : {user_input_path}")
 
-# 3) Loader mis en cache et invalidé sur modification du fichier
+# 3) Chargement avec cache (invalidation si mtime change)
 @st.cache_data(show_spinner=False)
 def load_data_cached(path_or_buffer, file_mtime: float):
     xfile = pd.ExcelFile(path_or_buffer)
@@ -99,33 +125,28 @@ def load_data_cached(path_or_buffer, file_mtime: float):
         for c in cands:
             if c in xfile.sheet_names:
                 return c
-            k = c.lower().strip()
-            if k in names:
-                return names[k]
+            if c.lower().strip() in names:
+                return names[c.lower().strip()]
         raise ValueError(f"Feuille introuvable. Présentes: {xfile.sheet_names}")
 
-    joueur_sheet = pick_sheet(["Joueur","Joueurs","Players"])
-    match_sheet  = pick_sheet(["Match","Matches"])
-    well_sheet   = pick_sheet(["Wellness","Bien-être","Wellbeing"])
+    joueur = pick_sheet(["Joueur","Joueurs","Players"])
+    match  = pick_sheet(["Match","Matches"])
+    well   = pick_sheet(["Wellness","Bien-être","Wellbeing"])
 
-    df_players  = pd.read_excel(xfile, sheet_name=joueur_sheet)
-    df_matches  = pd.read_excel(xfile, sheet_name=match_sheet)
-    df_wellness = pd.read_excel(xfile, sheet_name=well_sheet)
+    df_players  = pd.read_excel(xfile, sheet_name=joueur)
+    df_matches  = pd.read_excel(xfile, sheet_name=match)
+    df_wellness = pd.read_excel(xfile, sheet_name=well)
 
-    # Nettoyage colonnes
     for df in (df_players, df_matches, df_wellness):
-        df.columns = (df.columns.astype(str).str.strip().str.replace(r"\s+", " ", regex=True))
+        df.columns = df.columns.astype(str).str.strip().str.replace(r"\s+", " ", regex=True)
 
-    # Typages clés
+    # Types essentiels
     if 'PlayerID' in df_players.columns:
         df_players = df_players.dropna(subset=['PlayerID']).copy()
         df_players['PlayerID'] = df_players['PlayerID'].astype(int)
-
     if 'PlayerID' in df_matches.columns:
         df_matches = df_matches.dropna(subset=['PlayerID']).copy()
         df_matches['PlayerID'] = df_matches['PlayerID'].astype(int)
-        # (convertis ici tes colonnes numériques si besoin)
-
     if 'PlayerID' in df_wellness.columns:
         df_wellness = df_wellness.dropna(subset=['PlayerID']).copy()
         df_wellness['PlayerID'] = df_wellness['PlayerID'].astype(int)
@@ -135,28 +156,29 @@ def load_data_cached(path_or_buffer, file_mtime: float):
 
     return df_players, df_matches, df_wellness
 
-# 4) Détermine la “source” (fichier local vs upload) + mtime
-if uploaded:
-    # Pour un upload, pas de mtime fiable → on met 0
+if picked_path is None:
+    st.stop()
+
+# mtime : upload (0) vs fichier local (vrai mtime)
+if hasattr(picked_path, "read"):  # UploadedFile
     file_mtime = 0.0
-    source = uploaded
     source_label = "Upload (session)"
+    source_for_loader = picked_path
 else:
-    file_mtime = excel_path.stat().st_mtime
-    source = str(excel_path)
-    source_label = str(excel_path)
+    file_mtime = Path(picked_path).stat().st_mtime
+    source_label = str(picked_path)
+    source_for_loader = str(picked_path)
 
 st.sidebar.caption(f"📄 Source : {source_label}")
+df_players, df_matches, df_wellness = load_data_cached(source_for_loader, file_mtime)
 
-# 5) Charge les données (cache invalidé dès que le fichier local change)
-df_players, df_matches, df_wellness = load_data_cached(source, file_mtime)
-
-# 6) Petit toast si le fichier a changé depuis le dernier run
+# Toast si changement détecté depuis le dernier run
 last_mtime = st.session_state.get("_last_mtime")
 if last_mtime is not None and file_mtime != last_mtime:
-    st.toast("✅ Données rechargées (fichier modifié détecté).", icon="🔄")
+    st.toast("🔄 Données rechargées (fichier modifié détecté).", icon="✅")
 st.session_state["_last_mtime"] = file_mtime
-# ---------- fin bloc ----------
+# ================== /Assistant de chemin ==================
+
 
 # ------------------------------------------------------------------------------
 # 0) Config de page
