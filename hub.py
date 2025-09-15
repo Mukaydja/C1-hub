@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import time
 from pathlib import Path
 import streamlit as st
 import pandas as pd
@@ -7,43 +8,47 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
+# (Optionnel) auto-refresh
+try:
+    from streamlit_autorefresh import st_autorefresh
+    HAS_AUTOREFRESH = True
+except Exception:
+    HAS_AUTOREFRESH = False
+
 # ------------------------------------------------------------------------------
 # 0) Config de page
 # ------------------------------------------------------------------------------
 st.set_page_config(page_title="Football Pro Performance Hub", layout="wide", page_icon="⚽")
 
 # ------------------------------------------------------------------------------
+# Sidebar for file selection and refresh options
+# ------------------------------------------------------------------------------
+st.sidebar.subheader("⚙️ Source des données (local)")
+# Par défaut : fichier à côté du script
+default_guess = Path(__file__).parent / "Football-Hub-all-in-one.xlsx"
+excel_path_text = st.sidebar.text_input("Chemin Excel", str(default_guess))
+excel_path = Path(excel_path_text).expanduser()
+
+# Bouton manuel
+if st.sidebar.button("🔄 Recharger maintenant"):
+    st.cache_data.clear()
+    st.rerun()
+
+# Auto-refresh (optionnel)
+auto = HAS_AUTOREFRESH and st.sidebar.toggle("🔁 Auto-refresh", value=True)
+freq = st.sidebar.slider("Fréquence (secondes)", 5, 120, 30) if auto else 0
+if auto:
+    # relance le script toutes les X secondes
+    st_autorefresh(interval=freq * 1000, key="data_refresh")
+
+# ------------------------------------------------------------------------------
 # 1) Chargement ROBUSTE des données (chemins variés + uploader en fallback)
 # ------------------------------------------------------------------------------
-# @st.cache_data(show_spinner=False)
-def load_data(file_path: str | Path | None = None):
-    candidates: list[Path] = []
-    if file_path:
-        candidates.append(Path(file_path).expanduser())
-    candidates += [
-        Path.cwd() / "Football-Hub-all-in-one.xlsx",
-        Path(__file__).parent / "Football-Hub-all-in-one.xlsx",
-        Path.home() / "Desktop" / "c1-hub" / "Football-Hub-all-in-one.xlsx",
-        Path.home() / "Desktop" / "Football-Hub-all-in-one.xlsx",
-    ]
-    excel_path = next((p for p in candidates if isinstance(p, Path) and p.exists()), None)
-
-    xls_source = None
-    if excel_path is None:
-        st.warning(
-            "📂 Fichier Excel introuvable aux emplacements attendus.\n"
-            "👉 Sélectionne le fichier ci-dessous ou place-le à côté de ce script."
-        )
-        uploaded = st.file_uploader("Choisir le fichier Excel", type=["xlsx"])
-        if not uploaded:
-            st.caption(f"CWD: {os.getcwd()} — HOME: {Path.home()}")
-            st.stop()
-        xls_source = uploaded
-    else:
-        xls_source = excel_path
-
+@st.cache_data(show_spinner=False)
+def load_data_cached(path_str: str, file_mtime: float):
+    """Lit l’Excel. Le cache est invalidé automatiquement quand file_mtime change."""
+    xls_source = path_str
     xfile = pd.ExcelFile(xls_source)
-
     def pick_sheet(possible_names):
         normalized = {s.lower().strip(): s for s in xfile.sheet_names}
         for name in possible_names:
@@ -55,32 +60,26 @@ def load_data(file_path: str | Path | None = None):
         raise ValueError(
             f"Feuille introuvable. Essayé: {possible_names}. Feuilles présentes: {xfile.sheet_names}"
         )
-
     joueur_sheet = pick_sheet(["Joueur", "Joueurs", "Players"])
     match_sheet  = pick_sheet(["Match", "Matches"])
     well_sheet   = pick_sheet(["Wellness", "Bien-être", "Wellbeing"])
-
     df_players  = pd.read_excel(xfile, sheet_name=joueur_sheet)
     df_matches  = pd.read_excel(xfile, sheet_name=match_sheet)
     df_wellness = pd.read_excel(xfile, sheet_name=well_sheet)
-
     for df in (df_players, df_matches, df_wellness):
         df.columns = (
             df.columns.astype(str)
             .str.strip()
             .str.replace(r"\s+", " ", regex=True)
         )
-
     # Players
     df_players = df_players.dropna(subset=['PlayerID']).reset_index(drop=True)
     df_players['PlayerID'] = df_players['PlayerID'].astype(int)
     if 'date de naissance' in df_players.columns:
         df_players['date de naissance'] = pd.to_datetime(df_players['date de naissance'], errors='coerce')
-
     # Matches
     df_matches = df_matches.dropna(subset=['PlayerID']).reset_index(drop=True)
     df_matches['PlayerID'] = df_matches['PlayerID'].astype(int)
-
     numeric_cols_matches = [
         'Journée', 'Minute jouee', 'Buts', 'Tir', 'Tir cadre', 'xG',
         'Passe complete', 'Passe tentées', 'Tacles gagne', 'Ballon touche',
@@ -101,18 +100,27 @@ def load_data(file_path: str | Path | None = None):
     for col in numeric_cols_matches:
         if col in df_matches.columns:
             df_matches[col] = pd.to_numeric(df_matches[col], errors='coerce')
-
     # Wellness
     df_wellness = df_wellness.dropna(subset=['PlayerID']).reset_index(drop=True)
     df_wellness['PlayerID'] = df_wellness['PlayerID'].astype(int)
     if 'DATE' in df_wellness.columns:
         df_wellness['DATE'] = pd.to_datetime(df_wellness['DATE'], errors='coerce')
         df_wellness = df_wellness.dropna(subset=['DATE']).reset_index(drop=True)
-
     return df_players, df_matches, df_wellness
 
-# 👉 Appel
-df_players, df_matches, df_wellness = load_data()
+# --- Lecture avec invalidation par mtime ---
+if not excel_path.exists():
+    st.error(f"📂 Fichier introuvable : {excel_path}")
+    st.stop()
+
+file_mtime = excel_path.stat().st_mtime  # seconde dernière modif
+df_players, df_matches, df_wellness = load_data_cached(str(excel_path), file_mtime)
+
+# Optionnel : message discret si changement détecté depuis le dernier run
+last_mtime = st.session_state.get("_last_mtime")
+if last_mtime is not None and file_mtime != last_mtime:
+    st.toast("🔁 Données mises à jour depuis la dernière consultation.", icon="✅")
+st.session_state["_last_mtime"] = file_mtime
 
 # ------------------------------------------------------------------------------
 # 2) KPIs agrégés
@@ -128,9 +136,7 @@ def calculate_kpis(df_matches: pd.DataFrame):
         {"title": "Passes Décisives", "value": f"{int(total_assists)}", "trend": "positive" if total_assists > 0 else "negative", "subtitle": "-5% vs last season"},
         {"title": "Note Moyenne", "value": f"{avg_rating:.1f}", "trend": "positive" if avg_rating > 0.5 else "negative", "subtitle": "+0.3 vs last season"},
     ]
-
 kpis = calculate_kpis(df_matches)
-
 # ------------------------------------------------------------------------------
 # 3) CSS
 # ------------------------------------------------------------------------------
@@ -149,7 +155,6 @@ st.markdown("""
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg-primary);color:var(--text-primary);line-height:1.6;background-image:radial-gradient(circle at 25% 25%,rgba(59,130,246,.1) 0%,transparent 50%),radial-gradient(circle at 75% 75%,rgba(16,185,129,.1) 0%,transparent 50%);background-attachment:fixed}
 .main-content{padding-top:80px}
-
 /* Navbar */
 .navbar{position:fixed;top:0;left:0;right:0;z-index:1000;background:rgba(30,41,59,.8);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);height:80px}
 .navbar-container{max-width:1200px;margin:0 auto;padding:0 2rem;height:100%;display:flex;align-items:center;justify-content:space-between}
@@ -160,7 +165,6 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:
 .navbar-link{display:flex;align-items:center;gap:.5rem;padding:.75rem 1rem;border-radius:.75rem;background:transparent;border:none;color:var(--text-secondary);cursor:pointer;transition:var(--transition);font-size:.95rem;font-weight:500}
 .navbar-link:hover{background:rgba(59,130,246,.1);color:var(--text-primary)}
 .navbar-link.active{background:var(--accent-primary);color:white}
-
 /* Sections */
 .hero-section{position:relative;padding:6rem 2rem;text-align:center;overflow:hidden;background:var(--gradient-primary);border-radius:0 0 3rem 3rem;margin:0 -2rem 3rem}
 .hero-title{font-size:4rem;font-weight:900;margin-bottom:1rem;background:linear-gradient(135deg,var(--danger),var(--accent-primary),var(--success));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
@@ -186,7 +190,6 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:
 .section-title{font-size:2.5rem;font-weight:800;margin-bottom:1rem;background:var(--gradient-accent);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .section-subtitle{font-size:1.1rem;color:var(--text-secondary)}
 .players-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(350px,1fr));gap:2rem;max-width:1200px;margin:0 auto}
-
 /* Cards joueur */
 .player-card{background:var(--bg-secondary);border-radius:1.5rem;overflow:hidden;transition:var(--transition);box-shadow:var(--shadow);cursor:pointer;border:1px solid var(--border);height:420px;display:flex;flex-direction:column}
 .player-card:hover{transform:translateY(-10px);box-shadow:0 25px 50px rgba(0,0,0,.3);border-color:var(--accent-secondary)}
@@ -208,10 +211,8 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:
 .stat-label{font-size:.85rem;color:var(--text-muted)}
 .player-card-cta{display:flex;align-items:center;justify-content:center;gap:.5rem;padding:.875rem 1rem;background:var(--gradient-accent);border-radius:1rem;color:white;font-weight:600;transition:var(--transition);margin-top:auto}
 .player-card:hover .player-card-cta{transform:translateY(-2px);box-shadow:0 8px 20px rgba(59,130,246,.4)}
-
 .back-button{display:inline-flex;align-items:center;gap:.5rem;padding:.75rem 1rem;background:rgba(30,41,59,.6);border:1px solid var(--border);border-radius:1rem;color:var(--text-secondary);cursor:pointer;transition:var(--transition);margin-bottom:2rem;backdrop-filter:blur(8px)}
 .back-button:hover{background:rgba(59,130,246,.1);color:var(--text-primary);border-color:var(--accent-primary)}
-
 .player-detail-header{background:var(--bg-secondary);border:1px solid var(--border);border-radius:1.5rem;padding:2rem;margin-bottom:2rem;display:flex;align-items:center;gap:2rem}
 .player-avatar-large{width:120px;height:120px;border-radius:50%;overflow:hidden;border:4px solid var(--border);display:flex;align-items:center;justify-content:center;background:rgba(59,130,246,.2);font-size:3rem;font-weight:700;color:var(--accent-primary)}
 .player-info{flex:1}
@@ -219,15 +220,12 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:
 .player-meta-large{display:flex;align-items:center;gap:1rem;margin-bottom:1rem;flex-wrap:wrap}
 .player-meta-item{font-size:1.1rem;color:var(--text-secondary)}
 .player-meta-label{font-weight:600;color:var(--accent-primary)}
-
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1.5rem;margin-bottom:2rem}
 .stat-box{background:rgba(15,23,42,.6);border:1px solid var(--border);border-radius:1rem;padding:1.5rem;text-align:center}
 .stat-value{font-size:2rem;font-weight:800;color:var(--accent-primary);margin-bottom:.5rem}
 .stat-label{font-size:.9rem;color:var(--text-muted)}
-
 .graph-container{background:rgba(15,23,42,.6);border:1px solid var(--border);border-radius:1rem;padding:1.5rem;margin:1rem 0}
 .graph-title{font-size:1.2rem;font-weight:700;margin-bottom:1rem;color:var(--text-primary)}
-
 @media (max-width:768px){
   .hero-title{font-size:2.5rem}
   .players-grid{grid-template-columns:1fr}
@@ -236,17 +234,14 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:
 }
 </style>
 """, unsafe_allow_html=True)
-
 # ------------------------------------------------------------------------------
 # 4) État de session
 # ------------------------------------------------------------------------------
 if 'selected_player_id' not in st.session_state:
     st.session_state.selected_player_id = None
-
 def select_player(player_id: int):
     st.session_state.selected_player_id = player_id
     st.rerun()
-
 # ------------------------------------------------------------------------------
 # 5) Navbar
 # ------------------------------------------------------------------------------
@@ -266,7 +261,6 @@ st.markdown("""
   </div>
 </div>
 """, unsafe_allow_html=True)
-
 # ------------------------------------------------------------------------------
 # 6) Hero + KPIs + Filtres (page d'accueil)
 # ------------------------------------------------------------------------------
@@ -279,7 +273,6 @@ if st.session_state.selected_player_id is None:
       </div>
     </div>
     """, unsafe_allow_html=True)
-
     st.markdown('<div class="kpis-section"><div class="kpis-container">', unsafe_allow_html=True)
     cols = st.columns(len(kpis))
     for i, kpi in enumerate(kpis):
@@ -297,7 +290,6 @@ if st.session_state.selected_player_id is None:
             </div>
             """, unsafe_allow_html=True)
     st.markdown('</div></div>', unsafe_allow_html=True)
-
     st.markdown('<div class="filters-section"><div class="filters-container">', unsafe_allow_html=True)
     col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
@@ -309,7 +301,6 @@ if st.session_state.selected_player_id is None:
         unique_clubs = ["Tous"] + (df_players['Club'].dropna().astype(str).unique().tolist() if 'Club' in df_players.columns else [])
         selected_club = st.selectbox("Club", unique_clubs, label_visibility="collapsed")
     st.markdown('</div></div>', unsafe_allow_html=True)
-
     filtered_players = df_players.copy()
     if {'Nom','Prénom'}.issubset(filtered_players.columns):
         if search_query:
@@ -320,21 +311,17 @@ if st.session_state.selected_player_id is None:
         filtered_players = filtered_players[filtered_players['Poste'] == selected_position]
     if selected_club != "Tous" and 'Club' in filtered_players.columns:
         filtered_players = filtered_players[filtered_players['Club'] == selected_club]
-
 # ------------------------------------------------------------------------------
 # 7) Page DÉTAIL joueur
 # ------------------------------------------------------------------------------
 else:
     player_id = st.session_state.selected_player_id
     player_row = df_players[df_players['PlayerID'] == player_id].iloc[0]
-
     if st.button("⬅️ Retour à la liste des joueurs"):
         st.session_state.selected_player_id = None
         st.rerun()
-
     player_matches = df_matches[df_matches['PlayerID'] == player_id].copy()
     player_wellness = df_wellness[df_wellness['PlayerID'] == player_id].copy()
-
     # Indicateurs wellness
     if not player_wellness.empty:
         wellness_cols = ['Energie générale', 'Fraicheur musculaire', 'Humeur', 'Sommeil']
@@ -350,7 +337,6 @@ else:
         form_trend = "good" if avg_form_score and current_form_score >= avg_form_score else "warning"
     else:
         current_form_score, avg_form_score, form_trend = 0, 0, "bad"
-
     st.markdown(f"""
     <div class="player-detail-header">
       <div class="player-avatar-large">⚽</div>
@@ -367,7 +353,6 @@ else:
       </div>
     </div>
     """, unsafe_allow_html=True)
-
     col_form1, col_form2, col_form3 = st.columns(3)
     with col_form1:
         st.markdown(f"""
@@ -401,10 +386,8 @@ else:
               <div class="form-label">Douleur Actuelle</div>
               <div class="form-status good">Aucune donnée</div>
             </div>""", unsafe_allow_html=True)
-
     # Onglets
     tab1, tab2, tab3 = st.tabs(["📊 Statistiques", "⚽ Matchs", "🧘 Wellness"])
-
     with tab1:
         total_goals = int(player_matches['Buts'].sum()) if 'Buts' in player_matches.columns else 0
         total_assists = int(player_matches['Passe décisive'].sum()) if 'Passe décisive' in player_matches.columns else 0
@@ -421,7 +404,6 @@ else:
         with cols[3]:
             st.markdown(f"""<div class="stat-box"><div class="stat-value">{avg_minutes:.0f}'</div><div class="stat-label">Moy. minutes/match</div></div>""", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
-
         if not player_matches.empty:
             st.subheader("Détail des matchs")
             display_cols = ['Journée', 'Adversaire', 'Minute jouee', 'Buts', 'Passe décisive', 'xG']
@@ -429,13 +411,10 @@ else:
             st.dataframe(player_matches[display_cols], use_container_width=True)
         else:
             st.info("Aucun match trouvé pour ce joueur.")
-
     with tab2:
         st.subheader("⚽ Analyse Tactique & Performance en Match")
-
         if not player_matches.empty and 'Journée' in player_matches.columns:
             player_matches = player_matches.sort_values('Journée').reset_index(drop=True)
-
             # ---- Indicateurs calculés ----
             player_matches['Efficacité Offensive'] = player_matches.apply(
                 lambda r: r['Buts'] / r['xG'] if (r.get('xG', 0) and r['xG'] > 0) else 0, axis=1
@@ -450,7 +429,6 @@ else:
                 lambda r: (r['Passe complete'] / r['Passe tentées'] * 100) if r.get('Passe tentées', 0) else 0, axis=1
             ).round(1)
             player_matches['Impact Défensif'] = player_matches.get('Tacles gagne', 0).fillna(0) + player_matches.get('Interception', 0).fillna(0)
-
             # ---- Résumé global ----
             st.markdown("### 📈 Résumé Statistique Global")
             played_matches = player_matches[player_matches['Match joue'] == 1] if 'Match joue' in player_matches.columns else player_matches
@@ -459,7 +437,6 @@ else:
             avg_minutes = played_matches['Minute jouee'].mean() if total_matches > 0 and 'Minute jouee' in played_matches.columns else 0
             titularisation_rate = (played_matches['Titulaire'].sum() / total_matches * 100) if total_matches > 0 and 'Titulaire' in played_matches.columns else 0
             complete_match_rate = (played_matches['Match complet'].sum() / total_matches * 100) if total_matches > 0 and 'Match complet' in played_matches.columns else 0
-
             col_global1, col_global2, col_global3, col_global4, col_global5 = st.columns(5)
             with col_global1:
                 st.markdown(f"""<div class="stat-box"><div class="stat-value">{total_matches}</div><div class="stat-label">Matchs Joués</div></div>""", unsafe_allow_html=True)
@@ -471,7 +448,6 @@ else:
                 st.markdown(f"""<div class="stat-box"><div class="stat-value">{titularisation_rate:.0f}%</div><div class="stat-label">Taux de Titularisation</div></div>""", unsafe_allow_html=True)
             with col_global5:
                 st.markdown(f"""<div class="stat-box"><div class="stat-value">{complete_match_rate:.0f}%</div><div class="stat-label">% Matchs Complétés</div></div>""", unsafe_allow_html=True)
-
             # ---- Dernier match ----
             st.markdown("### 📊 Indicateurs de Performance du Dernier Match")
             last_match = player_matches.iloc[-1]
@@ -496,7 +472,6 @@ else:
                 prog_balls = last_match.get('Ballon sur passe progressive', 0)
                 color = "#10b981" if prog_balls >= 5 else "#f59e0b" if prog_balls >= 2 else "#6b7280"
                 st.markdown(f"""<div class="stat-box" style="border-left:4px solid {color};"><div class="stat-value" style="color:{color};">{int(prog_balls)}</div><div class="stat-label">Ballons sur Passes<br>Progressives</div></div>""", unsafe_allow_html=True)
-
             # ---- 2. Efficacité offensive ----
             st.markdown('<div class="graph-container"><div class="graph-title">🎯 Efficacité Offensive & Finition</div>', unsafe_allow_html=True)
             offensive_cols = ['Buts', 'Tir', 'Tir cadre', 'xG']
@@ -516,7 +491,6 @@ else:
             else:
                 st.info("Données offensives non disponibles.")
             st.markdown('</div>', unsafe_allow_html=True)
-
             # ---- 3. Circulation des passes ----
             st.markdown('<div class="graph-container"><div class="graph-title">🔄 Circulation & Distance des Passes</div>', unsafe_allow_html=True)
             col_pass1, col_pass2 = st.columns(2)
@@ -551,7 +525,6 @@ else:
                 else:
                     st.info("Données de distance de passes non disponibles.")
             st.markdown('</div>', unsafe_allow_html=True)
-
             # ---- 4. Pression & Récupération ----
             st.markdown('<div class="graph-container"><div class="graph-title">🛡️ Pression & Récupération</div>', unsafe_allow_html=True)
             pressure_cols = [c for c in ['Tacle camp','Tacle camp adverse','Perte du ballon par un adversaire'] if c in player_matches.columns]
@@ -568,7 +541,6 @@ else:
             else:
                 st.info("Données de pression non disponibles.")
             st.markdown('</div>', unsafe_allow_html=True)
-
             # ---- 5. Gestion du ballon & Fiabilité ----
             st.markdown('<div class="graph-container"><div class="graph-title">🔁 Gestion du Ballon & Fiabilité</div>', unsafe_allow_html=True)
             col_ball1, col_ball2 = st.columns(2)
@@ -602,11 +574,9 @@ else:
                 else:
                     st.info("Données de taux de passes non disponibles.")
             st.markdown('</div>', unsafe_allow_html=True)
-
             # =========================
             #   ➕ NOUVEAUX GRAPHIQUES
             # =========================
-
             # ---- 6. Répartition des touches par zone (aire empilée) ----
             st.markdown('<div class="graph-container"><div class="graph-title">🗺️ Répartition des Touches par Zone</div>', unsafe_allow_html=True)
             zone_map = {
@@ -643,7 +613,6 @@ else:
             else:
                 st.info("Aucune donnée de touches par zone disponible.")
             st.markdown('</div>', unsafe_allow_html=True)
-
             # ---- 7. Duels – Taux de réussite ----
             st.markdown('<div class="graph-container"><div class="graph-title">🧱 Duels – Taux de Réussite</div>', unsafe_allow_html=True)
             duel_cols_present = {'Duel 1v1 gagne': 'Duel 1v1 total' in player_matches.columns,
@@ -689,7 +658,6 @@ else:
                 if idx > 0:
                     st.plotly_chart(gauge_fig, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
-
             # ---- 8. Défense par 90 minutes ----
             st.markdown('<div class="graph-container"><div class="graph-title">🕐 Actions Défensives par 90’</div>', unsafe_allow_html=True)
             if 'Minute jouee' in player_matches.columns:
@@ -709,7 +677,6 @@ else:
             else:
                 st.info("Pas de minutes jouées → per 90 indisponible.")
             st.markdown('</div>', unsafe_allow_html=True)
-
             # ---- 9. Tendances glissantes (3 matchs) ----
             st.markdown('<div class="graph-container"><div class="graph-title">📉 Tendances (Moyenne Mobile 3 matchs)</div>', unsafe_allow_html=True)
             trend_cols = []
@@ -728,7 +695,6 @@ else:
             else:
                 st.info("Pas de variables suffisantes pour les tendances.")
             st.markdown('</div>', unsafe_allow_html=True)
-
             # ---- 10. Cumul Buts vs Cumul xG ----
             st.markdown('<div class="graph-container"><div class="graph-title">➕ Cumul Buts vs Cumul xG</div>', unsafe_allow_html=True)
             if all(c in player_matches.columns for c in ['Buts','xG']):
@@ -745,7 +711,6 @@ else:
             else:
                 st.info("Données insuffisantes pour le cumul.")
             st.markdown('</div>', unsafe_allow_html=True)
-
             # ---- 11. Matrice de corrélation ----
             st.markdown('<div class="graph-container"><div class="graph-title">🧪 Matrice de Corrélation</div>', unsafe_allow_html=True)
             cand = ['Buts','xG','Tir','Tir cadre','Passe clé','Passe progressive','Tacles total',
@@ -764,7 +729,6 @@ else:
             else:
                 st.info("Pas assez de variables numériques pour calculer une corrélation.")
             st.markdown('</div>', unsafe_allow_html=True)
-
             # ---- 12. Passes vers zones dangereuses ----
             st.markdown('<div class="graph-container"><div class="graph-title">🎯 Passes dans le Dernier Tiers & Surface</div>', unsafe_allow_html=True)
             pass_zone_cols = [c for c in ['Passe dernier tiers 1/3','Passe dans surface'] if c in player_matches.columns]
@@ -782,7 +746,6 @@ else:
             else:
                 st.info("Pas de colonnes de passes vers zones clés.")
             st.markdown('</div>', unsafe_allow_html=True)
-
             # ---- Données brutes ----
             st.subheader("📋 Données Brutes Complètes des Matchs")
             match_cols = [
@@ -799,10 +762,8 @@ else:
             ]
             available_cols = [c for c in match_cols if c in player_matches.columns]
             st.dataframe(player_matches[available_cols], use_container_width=True)
-
         else:
             st.warning("🚫 Pas assez de données pour générer des graphiques.")
-
     with tab3:
         st.subheader("🧘 Suivi du bien-être & Forme Physique")
         if not player_wellness.empty:
@@ -815,7 +776,6 @@ else:
                 player_wellness['Composite Score'] = player_wellness[composite_cols].mean(axis=1).round(1)
             else:
                 player_wellness['Composite Score'] = np.nan
-
             st.markdown("### 🔑 Indicateurs du dernier suivi")
             last_row = player_wellness.iloc[-1]
             col1, col2, col3, col4 = st.columns(4)
@@ -835,7 +795,6 @@ else:
                 pain = last_row.get('Intensité douleur', 0)
                 color = "#10b981" if pain <= 2 else "#f59e0b" if pain <= 5 else "#ef4444"
                 st.markdown(f"""<div class="stat-box" style="border-left:4px solid {color};"><div class="stat-value" style="color:{color};">{pain}/10</div><div class="stat-label">Douleur</div></div>""", unsafe_allow_html=True)
-
             st.markdown('<div class="graph-container"><div class="graph-title">📈 Évolution de la Forme Globale & Douleur</div>', unsafe_allow_html=True)
             fig_main = go.Figure()
             fig_main.add_trace(go.Scatter(x=player_wellness['DATE'], y=player_wellness['Composite Score'], mode='lines+markers',
@@ -848,7 +807,6 @@ else:
                                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_main, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
-
             col_a, col_b = st.columns(2)
             with col_a:
                 st.markdown('<div class="graph-container"><div class="graph-title">⚡ Énergie & Fraîcheur Musculaire</div>', unsafe_allow_html=True)
@@ -870,7 +828,6 @@ else:
                 fig_mood.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#cbd5e1', xaxis_title="Date", yaxis_title="Score (0-10)", showlegend=True)
                 st.plotly_chart(fig_mood, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
-
             col_c, col_d = st.columns(2)
             with col_c:
                 st.markdown("<div class='graph-container'><div class='graph-title'>🏋️ Qualité d'Entraînement</div>", unsafe_allow_html=True)
@@ -890,7 +847,6 @@ else:
                 else:
                     st.info("Donnée non disponible.")
                 st.markdown('</div>', unsafe_allow_html=True)
-
             st.markdown('<div class="graph-container"><div class="graph-title">📅 Timeline Quotidienne & Alertes</div>', unsafe_allow_html=True)
             player_wellness['Alerte'] = player_wellness.apply(
                 lambda row: "🔴 Alert" if (row.get('Intensité douleur', 0) > 5) or (row.get('Sommeil', 10) < 5) else
@@ -907,7 +863,6 @@ else:
                                        xaxis_title="Date", yaxis_title="Forme Globale (0-10)", showlegend=True)
             st.plotly_chart(fig_timeline, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
-
             st.subheader("📋 Données brutes")
             wellness_cols = [
                 'DATE', 'Energie générale', 'Fraicheur musculaire',
@@ -918,7 +873,6 @@ else:
             st.dataframe(player_wellness[available].sort_values('DATE', ascending=False), use_container_width=True)
         else:
             st.warning("🚫 Aucune donnée de bien-être disponible pour ce joueur.")
-
 # ------------------------------------------------------------------------------
 # 8) Grille des joueurs (si pas en vue détail)
 # ------------------------------------------------------------------------------
@@ -931,20 +885,17 @@ if st.session_state.selected_player_id is None:
     </div>
     """, unsafe_allow_html=True)
     st.markdown('<div class="players-grid">', unsafe_allow_html=True)
-
     for _, prow in filtered_players.iterrows():
         pm = df_matches[df_matches['PlayerID'] == prow['PlayerID']] if 'PlayerID' in df_matches.columns else pd.DataFrame()
         total_goals = int(pm['Buts'].sum()) if not pm.empty and 'Buts' in pm.columns else 0
         total_assists = int(pm['Passe décisive'].sum()) if not pm.empty and 'Passe décisive' in pm.columns else 0
         total_matches = len(pm[pm['Match joue'] == 1]) if not pm.empty and 'Match joue' in pm.columns else len(pm)
         avg_rating = pm['Minute/titularisation'].mean() if not pm.empty and 'Minute/titularisation' in pm.columns else 0.0
-
         badges = []
         if total_goals > 0: badges.append("Buteur")
         if total_assists > 0: badges.append("Passeur")
         if avg_rating > 0.5: badges.append("Titulaire")
         if len(badges) == 0: badges.append("En progression")
-
         st.markdown(f"""
         <div class="player-card">
           <div class="player-card-header">
@@ -970,12 +921,9 @@ if st.session_state.selected_player_id is None:
           </div>
         </div>
         """, unsafe_allow_html=True)
-
         if st.button(f"Voir profil {prow['PlayerID']}", key=f"btn_{prow['PlayerID']}", use_container_width=True):
             select_player(int(prow['PlayerID']))
-
     st.markdown('</div></div>', unsafe_allow_html=True)
-
 # ------------------------------------------------------------------------------
 # 9) Pied de page
 # ------------------------------------------------------------------------------
