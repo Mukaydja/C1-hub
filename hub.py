@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Football Pro Performance Hub — version chemin fixe (local), sans sidebar
+
 import os
 from pathlib import Path
 import streamlit as st
@@ -7,217 +9,146 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-# ================== Assistant de chemin ultra-robuste ==================
-from pathlib import Path
-import os
-import streamlit as st
-import pandas as pd
-
-st.sidebar.subheader("⚙️ Source des données (local)")
-
-# 0) Debug — où tourne l'app ?
-with st.sidebar.expander("🧭 Debug chemin (où suis-je ?)", expanded=False):
-    st.write("Home :", str(Path.home()))
-    # Note: __file__ might not be available in all Streamlit environments.
-    # Using a fallback.
-    try:
-        script_path = __file__
-    except NameError:
-        script_path = "N/A (Streamlit execution context)"
-    st.write("Script :", script_path)
-    st.write("CWD :", os.getcwd())
-
-# 1) Chemin saisi par l'utilisateur (optionnel)
-DEFAULT_INPUT = "/Users/abbesaine/Desktop/Hub/Football-Hub-all-in-one.xlsx"
-user_input_path = st.sidebar.text_input("Chemin Excel (optionnel)", DEFAULT_INPUT).strip()
-
-FILENAME = "Football-Hub-all-in-one.xlsx"
-
-def resolve_excel_path(filename=FILENAME, user_input=None):
-    tried, found = [], []
-
-    def _try(p):
-        p = Path(p).expanduser().resolve()
-        tried.append(p)
-        if p.exists():
-            found.append(p)
-
-    # Use os.getcwd() and os.path.dirname(__file__) as fallbacks for here/cwd
-    try:
-        here = Path(__file__).parent.resolve()
-    except NameError:
-        here = Path(os.getcwd()).resolve()
-    home = Path.home().resolve()
-    cwd  = Path.cwd().resolve()
-
-    # a) chemin explicite (si fourni)
-    if user_input:
-        _try(user_input)
-
-    # b) emplacements probables (local + iCloud Desktop)
-    _try(cwd / filename)
-    _try(here / filename)
-    _try(home / "Desktop" / filename)
-    _try(home / "Desktop" / "Hub" / filename)
-    _try(home / "Desktop" / "c1-hub" / filename)
-    _try(home / "Documents" / filename)
-    _try(home / "Downloads" / filename)
-
-    # macOS iCloud Desktop
-    icloud = home / "Library" / "Mobile Documents" / "com~apple~CloudDocs"
-    _try(icloud / "Desktop" / filename)
-    _try(icloud / "Desktop" / "Hub" / filename)
-    _try(icloud / "Desktop" / "c1-hub" / filename)
-
-    # c) plan B : petit scan ciblé (rapide) si rien trouvé
-    if not found:
-        for root in [
-            home / "Desktop", home / "Documents", home / "Downloads",
-            icloud / "Desktop", cwd, here
-        ]:
-            if root.exists():
-                # 1) try exact name
-                for p in root.rglob(filename):
-                    found.append(p)
-                    break
-                if found:
-                    break
-                # 2) try patterns proches
-                for p in root.rglob("Football*Hub*one*.xlsx"):
-                    found.append(p)
-                    break
-            if found:
-                break
-
-    best = found[0] if found else None
-    return best, tried, found
-
-excel_path, tried_paths, candidates = resolve_excel_path(user_input=user_input_path or None)
-
-# 2) UI : choix entre candidats trouvés / upload / entrée manuelle
-picked_path = None
-if candidates:
-    st.sidebar.success("✅ Fichier(s) trouvé(s)")
-    # trie par date de modif (plus récent en premier)
-    candidates = sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)
-    options = [str(p) for p in candidates]
-    picked_str = st.sidebar.selectbox("Choisir un fichier détecté :", options, index=0)
-    picked_path = Path(picked_str)
-else:
-    st.sidebar.warning("📂 Aucun fichier trouvé automatiquement.")
-    with st.sidebar.expander("Chemins testés", expanded=False):
-        for p in tried_paths:
-            st.write("—", str(p))
-    uploaded = st.sidebar.file_uploader("…ou importer le fichier Excel", type=["xlsx"])
-    if uploaded:
-        picked_path = uploaded  # fichier en mémoire
-    elif user_input_path:
-        # dernier recours : si un chemin est saisi mais introuvable, on l’affiche clairement
-        st.sidebar.error(f"Chemin saisi introuvable : {user_input_path}")
-
-# 3) Chargement avec cache (invalidation si mtime change)
-@st.cache_data(show_spinner=False)
-def load_data_cached(path_or_buffer, file_mtime: float):
-    xfile = pd.ExcelFile(path_or_buffer)
-
-    def pick_sheet(cands):
-        names = {s.lower().strip(): s for s in xfile.sheet_names}
-        for c in cands:
-            if c in xfile.sheet_names:
-                return c
-            if c.lower().strip() in names:
-                return names[c.lower().strip()]
-        raise ValueError(f"Feuille introuvable. Présentes: {xfile.sheet_names}")
-
-    joueur = pick_sheet(["Joueur","Joueurs","Players"])
-    match  = pick_sheet(["Match","Matches"])
-    well   = pick_sheet(["Wellness","Bien-être","Wellbeing"])
-
-    df_players  = pd.read_excel(xfile, sheet_name=joueur)
-    df_matches  = pd.read_excel(xfile, sheet_name=match)
-    df_wellness = pd.read_excel(xfile, sheet_name=well)
-
-    for df in (df_players, df_matches, df_wellness):
-        df.columns = df.columns.astype(str).str.strip().str.replace(r"\s+", " ", regex=True)
-
-    # Types essentiels
-    if 'PlayerID' in df_players.columns:
-        df_players = df_players.dropna(subset=['PlayerID']).copy()
-        df_players['PlayerID'] = df_players['PlayerID'].astype(int)
-    if 'PlayerID' in df_matches.columns:
-        df_matches = df_matches.dropna(subset=['PlayerID']).copy()
-        df_matches['PlayerID'] = df_matches['PlayerID'].astype(int)
-    if 'PlayerID' in df_wellness.columns:
-        df_wellness = df_wellness.dropna(subset=['PlayerID']).copy()
-        df_wellness['PlayerID'] = df_wellness['PlayerID'].astype(int)
-    if 'DATE' in df_wellness.columns:
-        df_wellness['DATE'] = pd.to_datetime(df_wellness['DATE'], errors='coerce')
-        df_wellness = df_wellness.dropna(subset=['DATE'])
-
-    return df_players, df_matches, df_wellness
-
-if picked_path is None:
-    st.stop()
-
-# mtime : upload (0) vs fichier local (vrai mtime)
-if hasattr(picked_path, "read"):  # UploadedFile
-    file_mtime = 0.0
-    source_label = "Upload (session)"
-    source_for_loader = picked_path
-else:
-    file_mtime = Path(picked_path).stat().st_mtime
-    source_label = str(picked_path)
-    source_for_loader = str(picked_path)
-
-st.sidebar.caption(f"📄 Source : {source_label}")
-df_players, df_matches, df_wellness = load_data_cached(source_for_loader, file_mtime)
-
-# Toast si changement détecté depuis le dernier run
-last_mtime = st.session_state.get("_last_mtime")
-if last_mtime is not None and file_mtime != last_mtime:
-    st.toast("🔄 Données rechargées (fichier modifié détecté).", icon="✅")
-st.session_state["_last_mtime"] = file_mtime
-# ================== /Assistant de chemin ==================
-
-
 # ------------------------------------------------------------------------------
 # 0) Config de page
 # ------------------------------------------------------------------------------
 st.set_page_config(page_title="Football Pro Performance Hub", layout="wide", page_icon="⚽")
 
 # ------------------------------------------------------------------------------
+# 1) Chargement des données — chemin FIXE + cache invalidé sur modification
+# ------------------------------------------------------------------------------
+EXCEL_PATH = Path("/Users/abbesaine/Desktop/Hub/Football-Hub-all-in-one.xlsx").expanduser()
+
+if not EXCEL_PATH.exists():
+    st.error(
+        f"📂 Fichier introuvable : {EXCEL_PATH}\n\n"
+        "Vérifie que le chemin est exact sur CETTE machine.\n"
+        "Astuce macOS : Finder → clic droit en maintenant ⌥ Option → « Copier le nom du chemin »."
+    )
+    st.stop()
+
+file_mtime = EXCEL_PATH.stat().st_mtime  # dernière modification (secondes)
+
+@st.cache_data(show_spinner=False)
+def load_data_cached(path_str: str, mtime: float):
+    """
+    Lis l'Excel au chemin donné.
+    Le cache est invalidé automatiquement quand 'mtime' change.
+    """
+    xfile = pd.ExcelFile(path_str)
+
+    def pick_sheet(candidates):
+        names = {s.lower().strip(): s for s in xfile.sheet_names}
+        for c in candidates:
+            if c in xfile.sheet_names:
+                return c
+            k = c.lower().strip()
+            if k in names:
+                return names[k]
+        raise ValueError(f"Feuille introuvable. Présentes: {xfile.sheet_names} — Recherché: {candidates}")
+
+    joueur_sheet = pick_sheet(["Joueur", "Joueurs", "Players"])
+    match_sheet  = pick_sheet(["Match", "Matches"])
+    well_sheet   = pick_sheet(["Wellness", "Bien-être", "Wellbeing"])
+
+    df_players  = pd.read_excel(xfile, sheet_name=joueur_sheet)
+    df_matches  = pd.read_excel(xfile, sheet_name=match_sheet)
+    df_wellness = pd.read_excel(xfile, sheet_name=well_sheet)
+
+    # Nettoyage colonnes (trim + espaces multiples)
+    for df in (df_players, df_matches, df_wellness):
+        df.columns = (df.columns.astype(str)
+                      .str.strip()
+                      .str.replace(r"\s+", " ", regex=True))
+
+    # --- Players ---
+    if 'PlayerID' in df_players.columns:
+        df_players = df_players.dropna(subset=['PlayerID']).reset_index(drop=True)
+        df_players['PlayerID'] = df_players['PlayerID'].astype(int)
+    if 'date de naissance' in df_players.columns:
+        df_players['date de naissance'] = pd.to_datetime(df_players['date de naissance'], errors='coerce')
+
+    # --- Matches ---
+    if 'PlayerID' in df_matches.columns:
+        df_matches = df_matches.dropna(subset=['PlayerID']).reset_index(drop=True)
+        df_matches['PlayerID'] = df_matches['PlayerID'].astype(int)
+
+    numeric_cols_matches = [
+        'Journée', 'Minute jouee', 'Buts', 'Tir', 'Tir cadre', 'xG',
+        'Passe complete', 'Passe tentées', 'Tacles gagne', 'Ballon touche',
+        'Passe décisive', 'Minute/titularisation',
+        'Passe courte complete', 'Passe moyenne complete', 'Passe  long complete',
+        'Duel 1v1 gagne', 'Duel 1v1 total', 'Duel aérien gagne', 'Duel aérien perdu',
+        'Ballon touch dans surface', 'Ballon touche dans son camp',
+        'Ballon touche milieu', 'Ballon touche dernier tiers 1/3',
+        'Interception', 'Recuperation', 'Passe clé', 'Passe progressive',
+        'Tacles total',
+        'Progressive passe distance (m)', 'Distance parcouru avec ballon (m)',
+        'Erreur technique', 'Perte du ballon par un adversaire',
+        'Distance passe (m)', 'Tacle camp', 'Tacle camp adverse',
+        'Match joue', 'Titulaire', 'Match complet', 'Remplaçant', 'Remplaçant non rentré', 'Sortie en cours de match',
+        'Passe dans surface', 'Passe dernier tiers 1/3',
+        'Reception du ballon', 'Ballon sur passe progressive'
+    ]
+    for col in numeric_cols_matches:
+        if col in df_matches.columns:
+            df_matches[col] = pd.to_numeric(df_matches[col], errors='coerce')
+
+    # --- Wellness ---
+    if 'PlayerID' in df_wellness.columns:
+        df_wellness = df_wellness.dropna(subset=['PlayerID']).reset_index(drop=True)
+        df_wellness['PlayerID'] = df_wellness['PlayerID'].astype(int)
+    if 'DATE' in df_wellness.columns:
+        df_wellness['DATE'] = pd.to_datetime(df_wellness['DATE'], errors='coerce')
+        df_wellness = df_wellness.dropna(subset=['DATE']).reset_index(drop=True)
+
+    return df_players, df_matches, df_wellness
+
+# 👉 Charge les DataFrames depuis TON chemin fixe
+df_players, df_matches, df_wellness = load_data_cached(str(EXCEL_PATH), file_mtime)
+
+# Toast discret si le fichier a changé entre deux runs
+_prev_mtime = st.session_state.get("_last_mtime")
+if _prev_mtime is not None and _prev_mtime != file_mtime:
+    st.toast("🔄 Données rechargées (modification du fichier détectée).", icon="✅")
+st.session_state["_last_mtime"] = file_mtime
+
+# ------------------------------------------------------------------------------
 # 2) KPIs agrégés
 # ------------------------------------------------------------------------------
 def calculate_kpis(df_matches: pd.DataFrame):
     total_players = df_matches['PlayerID'].nunique() if 'PlayerID' in df_matches.columns else 0
-    total_goals = df_matches['Buts'].sum() if 'Buts' in df_matches.columns else 0
-    total_assists = df_matches['Passe décisive'].sum() if 'Passe décisive' in df_matches.columns else 0
-    avg_rating = df_matches['Minute/titularisation'].mean() if 'Minute/titularisation' in df_matches.columns else 0.0
+    total_goals = int(df_matches['Buts'].sum()) if 'Buts' in df_matches.columns else 0
+    total_assists = int(df_matches['Passe décisive'].sum()) if 'Passe décisive' in df_matches.columns else 0
+    avg_rating = float(df_matches['Minute/titularisation'].mean()) if 'Minute/titularisation' in df_matches.columns else 0.0
     return [
         {"title": "Total Joueurs", "value": f"{total_players}", "trend": "positive", "subtitle": "+12% vs last season"},
-        {"title": "Buts Marqués", "value": f"{int(total_goals)}", "trend": "positive" if total_goals > 0 else "negative", "subtitle": "+18% vs last season"},
-        {"title": "Passes Décisives", "value": f"{int(total_assists)}", "trend": "positive" if total_assists > 0 else "negative", "subtitle": "-5% vs last season"},
+        {"title": "Buts Marqués", "value": f"{total_goals}", "trend": "positive" if total_goals > 0 else "negative", "subtitle": "+18% vs last season"},
+        {"title": "Passes Décisives", "value": f"{total_assists}", "trend": "positive" if total_assists > 0 else "negative", "subtitle": "-5% vs last season"},
         {"title": "Note Moyenne", "value": f"{avg_rating:.1f}", "trend": "positive" if avg_rating > 0.5 else "negative", "subtitle": "+0.3 vs last season"},
     ]
+
 kpis = calculate_kpis(df_matches)
+
 # ------------------------------------------------------------------------------
-# 3) CSS
+# 3) CSS (thème & composants)
 # ------------------------------------------------------------------------------
 st.markdown("""
 <style>
 :root {
-  --bg-primary: #0f172a; --bg-secondary: #1e293b; --bg-tertiary: #334155;
-  --text-primary: #f8fafc; --text-secondary: #cbd5e1; --text-muted: #94a3b8;
-  --accent-primary: #3b82f6; --accent-secondary: #60a5fa;
-  --success: #10b981; --warning: #f59e0b; --danger: #ef4444;
-  --border: rgba(51,65,85,0.4); --shadow: 0 8px 32px rgba(0,0,0,0.15);
-  --transition: all .3s cubic-bezier(.4,0,.2,1);
-  --gradient-primary: linear-gradient(135deg,#1e293b,#0f172a);
-  --gradient-accent: linear-gradient(135deg,#3b82f6,#1e40af);
+  --bg-primary:#0f172a; --bg-secondary:#1e293b; --bg-tertiary:#334155;
+  --text-primary:#f8fafc; --text-secondary:#cbd5e1; --text-muted:#94a3b8;
+  --accent-primary:#3b82f6; --accent-secondary:#60a5fa;
+  --success:#10b981; --warning:#f59e0b; --danger:#ef4444;
+  --border:rgba(51,65,85,.4); --shadow:0 8px 32px rgba(0,0,0,.15);
+  --transition:all .3s cubic-bezier(.4,0,.2,1);
+  --gradient-primary:linear-gradient(135deg,#1e293b,#0f172a);
+  --gradient-accent:linear-gradient(135deg,#3b82f6,#1e40af);
 }
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg-primary);color:var(--text-primary);line-height:1.6;background-image:radial-gradient(circle at 25% 25%,rgba(59,130,246,.1) 0%,transparent 50%),radial-gradient(circle at 75% 75%,rgba(16,185,129,.1) 0%,transparent 50%);background-attachment:fixed}
 .main-content{padding-top:80px}
+
 /* Navbar */
 .navbar{position:fixed;top:0;left:0;right:0;z-index:1000;background:rgba(30,41,59,.8);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);height:80px}
 .navbar-container{max-width:1200px;margin:0 auto;padding:0 2rem;height:100%;display:flex;align-items:center;justify-content:space-between}
@@ -228,10 +159,12 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:
 .navbar-link{display:flex;align-items:center;gap:.5rem;padding:.75rem 1rem;border-radius:.75rem;background:transparent;border:none;color:var(--text-secondary);cursor:pointer;transition:var(--transition);font-size:.95rem;font-weight:500}
 .navbar-link:hover{background:rgba(59,130,246,.1);color:var(--text-primary)}
 .navbar-link.active{background:var(--accent-primary);color:white}
+
 /* Sections */
 .hero-section{position:relative;padding:6rem 2rem;text-align:center;overflow:hidden;background:var(--gradient-primary);border-radius:0 0 3rem 3rem;margin:0 -2rem 3rem}
 .hero-title{font-size:4rem;font-weight:900;margin-bottom:1rem;background:linear-gradient(135deg,var(--danger),var(--accent-primary),var(--success));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .hero-subtitle{font-size:1.25rem;color:var(--text-secondary);max-width:600px;margin:0 auto;font-weight:300;letter-spacing:.5px}
+
 .kpis-section{padding:0 2rem 3rem}
 .kpis-container{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:2rem;max-width:1200px;margin:0 auto}
 .kpi-card{background:rgba(30,41,59,.6);backdrop-filter:blur(16px);border:1px solid var(--border);border-radius:1.5rem;padding:2rem;transition:var(--transition);position:relative;overflow:hidden}
@@ -246,13 +179,20 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:
 .kpi-value{font-size:2.5rem;font-weight:800;margin-bottom:.5rem;line-height:1;background:var(--gradient-accent);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .kpi-title{font-size:.95rem;color:var(--text-secondary);font-weight:500;margin-bottom:.25rem}
 .kpi-subtitle{font-size:.8rem;color:var(--text-muted)}
+
 .filters-section{padding:0 2rem 2rem}
 .filters-container{max-width:1200px;margin:0 auto;background:rgba(30,41,59,.6);backdrop-filter:blur(16px);border:1px solid var(--border);border-radius:1.5rem;padding:2rem;display:flex;gap:2rem;align-items:center;flex-wrap:wrap}
+.search-input{width:100%;padding:.875rem 1rem;background:rgba(15,23,42,.6);border:1px solid var(--border);border-radius:1rem;color:var(--text-primary);font-size:.95rem;transition:var(--transition);outline:none}
+.search-input:focus{border-color:var(--accent-primary);box-shadow:0 0 0 3px rgba(59,130,246,.1)}
+.filter-select{padding:.875rem 1rem;background:rgba(15,23,42,.6);border:1px solid var(--border);border-radius:1rem;color:var(--text-primary);font-size:.95rem;cursor:pointer;transition:var(--transition);min-width:150px}
+.filter-select:focus{outline:none;border-color:var(--accent-primary)}
+
 .players-section{padding:2rem}
 .players-header{max-width:1200px;margin:0 auto 2rem;text-align:center}
 .section-title{font-size:2.5rem;font-weight:800;margin-bottom:1rem;background:var(--gradient-accent);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .section-subtitle{font-size:1.1rem;color:var(--text-secondary)}
 .players-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(350px,1fr));gap:2rem;max-width:1200px;margin:0 auto}
+
 /* Cards joueur */
 .player-card{background:var(--bg-secondary);border-radius:1.5rem;overflow:hidden;transition:var(--transition);box-shadow:var(--shadow);cursor:pointer;border:1px solid var(--border);height:420px;display:flex;flex-direction:column}
 .player-card:hover{transform:translateY(-10px);box-shadow:0 25px 50px rgba(0,0,0,.3);border-color:var(--accent-secondary)}
@@ -274,8 +214,8 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:
 .stat-label{font-size:.85rem;color:var(--text-muted)}
 .player-card-cta{display:flex;align-items:center;justify-content:center;gap:.5rem;padding:.875rem 1rem;background:var(--gradient-accent);border-radius:1rem;color:white;font-weight:600;transition:var(--transition);margin-top:auto}
 .player-card:hover .player-card-cta{transform:translateY(-2px);box-shadow:0 8px 20px rgba(59,130,246,.4)}
-.back-button{display:inline-flex;align-items:center;gap:.5rem;padding:.75rem 1rem;background:rgba(30,41,59,.6);border:1px solid var(--border);border-radius:1rem;color:var(--text-secondary);cursor:pointer;transition:var(--transition);margin-bottom:2rem;backdrop-filter:blur(8px)}
-.back-button:hover{background:rgba(59,130,246,.1);color:var(--text-primary);border-color:var(--accent-primary)}
+
+/* Header détail joueur */
 .player-detail-header{background:var(--bg-secondary);border:1px solid var(--border);border-radius:1.5rem;padding:2rem;margin-bottom:2rem;display:flex;align-items:center;gap:2rem}
 .player-avatar-large{width:120px;height:120px;border-radius:50%;overflow:hidden;border:4px solid var(--border);display:flex;align-items:center;justify-content:center;background:rgba(59,130,246,.2);font-size:3rem;font-weight:700;color:var(--accent-primary)}
 .player-info{flex:1}
@@ -283,12 +223,16 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:
 .player-meta-large{display:flex;align-items:center;gap:1rem;margin-bottom:1rem;flex-wrap:wrap}
 .player-meta-item{font-size:1.1rem;color:var(--text-secondary)}
 .player-meta-label{font-weight:600;color:var(--accent-primary)}
+
+/* Stats & graphs */
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1.5rem;margin-bottom:2rem}
 .stat-box{background:rgba(15,23,42,.6);border:1px solid var(--border);border-radius:1rem;padding:1.5rem;text-align:center}
-.stat-value{font-size:2rem;font-weight:800;color:var(--accent-primary);margin-bottom:.5rem}
-.stat-label{font-size:.9rem;color:var(--text-muted)}
+.stat-box .stat-value{font-size:2rem;font-weight:800;color:var(--accent-primary);margin-bottom:.5rem}
+.stat-box .stat-label{font-size:.9rem;color:var(--text-muted)}
 .graph-container{background:rgba(15,23,42,.6);border:1px solid var(--border);border-radius:1rem;padding:1.5rem;margin:1rem 0}
 .graph-title{font-size:1.2rem;font-weight:700;margin-bottom:1rem;color:var(--text-primary)}
+
+/* Responsive */
 @media (max-width:768px){
   .hero-title{font-size:2.5rem}
   .players-grid{grid-template-columns:1fr}
@@ -297,14 +241,17 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:
 }
 </style>
 """, unsafe_allow_html=True)
+
 # ------------------------------------------------------------------------------
 # 4) État de session
 # ------------------------------------------------------------------------------
 if 'selected_player_id' not in st.session_state:
     st.session_state.selected_player_id = None
+
 def select_player(player_id: int):
     st.session_state.selected_player_id = player_id
     st.rerun()
+
 # ------------------------------------------------------------------------------
 # 5) Navbar
 # ------------------------------------------------------------------------------
@@ -324,10 +271,12 @@ st.markdown("""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 # ------------------------------------------------------------------------------
-# 6) Hero + KPIs + Filtres (page d'accueil)
+# 6) Page d'accueil : Hero + KPIs + Filtres
 # ------------------------------------------------------------------------------
 if st.session_state.selected_player_id is None:
+    # Hero
     st.markdown("""
     <div class="hero-section">
       <div class="hero-content">
@@ -336,8 +285,10 @@ if st.session_state.selected_player_id is None:
       </div>
     </div>
     """, unsafe_allow_html=True)
+
+    # KPIs
     st.markdown('<div class="kpis-section"><div class="kpis-container">', unsafe_allow_html=True)
-    cols = st.columns(len(kpis))
+    cols = st.columns(len(kpis) if kpis else 1)
     for i, kpi in enumerate(kpis):
         trend_class = "positive" if kpi["trend"] == "positive" else "negative"
         with cols[i]:
@@ -353,6 +304,8 @@ if st.session_state.selected_player_id is None:
             </div>
             """, unsafe_allow_html=True)
     st.markdown('</div></div>', unsafe_allow_html=True)
+
+    # Filtres (inline — pas de sidebar)
     st.markdown('<div class="filters-section"><div class="filters-container">', unsafe_allow_html=True)
     col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
@@ -364,27 +317,35 @@ if st.session_state.selected_player_id is None:
         unique_clubs = ["Tous"] + (df_players['Club'].dropna().astype(str).unique().tolist() if 'Club' in df_players.columns else [])
         selected_club = st.selectbox("Club", unique_clubs, label_visibility="collapsed")
     st.markdown('</div></div>', unsafe_allow_html=True)
+
+    # Application des filtres
     filtered_players = df_players.copy()
     if {'Nom','Prénom'}.issubset(filtered_players.columns):
         if search_query:
-            mask = (filtered_players['Nom'].astype(str).str.contains(search_query, case=False, na=False) |
-                    filtered_players['Prénom'].astype(str).str.contains(search_query, case=False, na=False))
+            mask = (
+                filtered_players['Nom'].astype(str).str.contains(search_query, case=False, na=False) |
+                filtered_players['Prénom'].astype(str).str.contains(search_query, case=False, na=False)
+            )
             filtered_players = filtered_players[mask]
     if selected_position != "Tous" and 'Poste' in filtered_players.columns:
         filtered_players = filtered_players[filtered_players['Poste'] == selected_position]
     if selected_club != "Tous" and 'Club' in filtered_players.columns:
         filtered_players = filtered_players[filtered_players['Club'] == selected_club]
+
 # ------------------------------------------------------------------------------
 # 7) Page DÉTAIL joueur
 # ------------------------------------------------------------------------------
 else:
     player_id = st.session_state.selected_player_id
     player_row = df_players[df_players['PlayerID'] == player_id].iloc[0]
+
     if st.button("⬅️ Retour à la liste des joueurs"):
         st.session_state.selected_player_id = None
         st.rerun()
+
     player_matches = df_matches[df_matches['PlayerID'] == player_id].copy()
     player_wellness = df_wellness[df_wellness['PlayerID'] == player_id].copy()
+
     # Indicateurs wellness
     if not player_wellness.empty:
         wellness_cols = ['Energie générale', 'Fraicheur musculaire', 'Humeur', 'Sommeil']
@@ -396,10 +357,12 @@ else:
         else:
             player_wellness['Form Score'] = np.nan
         current_form_score = player_wellness['Form Score'].dropna().iloc[-1] if not player_wellness['Form Score'].dropna().empty else 0
-        avg_form_score = player_wellness['Form Score'].mean() if not player_wellness['Form Score'].dropna().empty else 0
+        avg_form_score = float(player_wellness['Form Score'].mean()) if not player_wellness['Form Score'].dropna().empty else 0
         form_trend = "good" if avg_form_score and current_form_score >= avg_form_score else "warning"
     else:
         current_form_score, avg_form_score, form_trend = 0, 0, "bad"
+
+    # En-tête joueur
     st.markdown(f"""
     <div class="player-detail-header">
       <div class="player-avatar-large">⚽</div>
@@ -416,46 +379,47 @@ else:
       </div>
     </div>
     """, unsafe_allow_html=True)
+
+    # Indicateurs de forme rapides
     col_form1, col_form2, col_form3 = st.columns(3)
     with col_form1:
         st.markdown(f"""
-        <div class="form-indicator">
-          <div class="form-value">{current_form_score}/10</div>
-          <div class="form-label">Forme Actuelle</div>
-          <div class="form-status {form_trend}">↑ Tendance</div>
+        <div class="stat-box">
+          <div class="stat-value">{current_form_score}/10</div>
+          <div class="stat-label">Forme Actuelle</div>
         </div>""", unsafe_allow_html=True)
     with col_form2:
         st.markdown(f"""
-        <div class="form-indicator">
-          <div class="form-value">{avg_form_score:.1f}/10</div>
-          <div class="form-label">Forme Moyenne</div>
-          <div class="form-status good">Stable</div>
+        <div class="stat-box">
+          <div class="stat-value">{avg_form_score:.1f}/10</div>
+          <div class="stat-label">Forme Moyenne</div>
         </div>""", unsafe_allow_html=True)
     with col_form3:
         pain_col = 'Intensité douleur'
         if not player_wellness.empty and pain_col in player_wellness.columns:
             recent_pain = player_wellness[pain_col].dropna().iloc[-1] if not player_wellness[pain_col].dropna().empty else 0
-            pain_status = "good" if recent_pain <= 2 else "warning" if recent_pain <= 5 else "bad"
             st.markdown(f"""
-            <div class="form-indicator">
-              <div class="form-value">{int(recent_pain)}/10</div>
-              <div class="form-label">Douleur Actuelle</div>
-              <div class="form-status {pain_status}">Attention</div>
+            <div class="stat-box">
+              <div class="stat-value">{int(recent_pain)}/10</div>
+              <div class="stat-label">Douleur Actuelle</div>
             </div>""", unsafe_allow_html=True)
         else:
             st.markdown("""
-            <div class="form-indicator">
-              <div class="form-value">N/A</div>
-              <div class="form-label">Douleur Actuelle</div>
-              <div class="form-status good">Aucune donnée</div>
+            <div class="stat-box">
+              <div class="stat-value">N/A</div>
+              <div class="stat-label">Douleur Actuelle</div>
             </div>""", unsafe_allow_html=True)
+
     # Onglets
     tab1, tab2, tab3 = st.tabs(["📊 Statistiques", "⚽ Matchs", "🧘 Wellness"])
+
+    # --- Tab 1: Statistiques synthétiques + tableau simple ---
     with tab1:
         total_goals = int(player_matches['Buts'].sum()) if 'Buts' in player_matches.columns else 0
         total_assists = int(player_matches['Passe décisive'].sum()) if 'Passe décisive' in player_matches.columns else 0
         total_matches = len(player_matches[player_matches['Match joue'] == 1]) if 'Match joue' in player_matches.columns else len(player_matches)
-        avg_minutes = player_matches['Minute jouee'].mean() if 'Minute jouee' in player_matches.columns else 0
+        avg_minutes = float(player_matches['Minute jouee'].mean()) if 'Minute jouee' in player_matches.columns and not player_matches.empty else 0
+
         st.markdown('<div class="stats-grid">', unsafe_allow_html=True)
         cols = st.columns(4)
         with cols[0]:
@@ -467,6 +431,7 @@ else:
         with cols[3]:
             st.markdown(f"""<div class="stat-box"><div class="stat-value">{avg_minutes:.0f}'</div><div class="stat-label">Moy. minutes/match</div></div>""", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
+
         if not player_matches.empty:
             st.subheader("Détail des matchs")
             display_cols = ['Journée', 'Adversaire', 'Minute jouee', 'Buts', 'Passe décisive', 'xG']
@@ -474,13 +439,17 @@ else:
             st.dataframe(player_matches[display_cols], use_container_width=True)
         else:
             st.info("Aucun match trouvé pour ce joueur.")
+
+    # --- Tab 2: Matchs (analyses + nouveaux graphiques) ---
     with tab2:
         st.subheader("⚽ Analyse Tactique & Performance en Match")
+
         if not player_matches.empty and 'Journée' in player_matches.columns:
             player_matches = player_matches.sort_values('Journée').reset_index(drop=True)
-            # ---- Indicateurs calculés ----
+
+            # Calculs indicateurs
             player_matches['Efficacité Offensive'] = player_matches.apply(
-                lambda r: r['Buts'] / r['xG'] if (r.get('xG', 0) and r['xG'] > 0) else 0, axis=1
+                lambda r: r['Buts'] / r['xG'] if r.get('xG', 0) and r['xG'] > 0 else 0, axis=1
             ).round(2)
             player_matches['% Tirs Cadrés'] = player_matches.apply(
                 lambda r: (r['Tir cadre'] / r['Tir'] * 100) if r.get('Tir', 0) else 0, axis=1
@@ -492,7 +461,8 @@ else:
                 lambda r: (r['Passe complete'] / r['Passe tentées'] * 100) if r.get('Passe tentées', 0) else 0, axis=1
             ).round(1)
             player_matches['Impact Défensif'] = player_matches.get('Tacles gagne', 0).fillna(0) + player_matches.get('Interception', 0).fillna(0)
-            # ---- Résumé global ----
+
+            # Résumé global
             st.markdown("### 📈 Résumé Statistique Global")
             played_matches = player_matches[player_matches['Match joue'] == 1] if 'Match joue' in player_matches.columns else player_matches
             total_matches = len(played_matches)
@@ -500,6 +470,7 @@ else:
             avg_minutes = played_matches['Minute jouee'].mean() if total_matches > 0 and 'Minute jouee' in played_matches.columns else 0
             titularisation_rate = (played_matches['Titulaire'].sum() / total_matches * 100) if total_matches > 0 and 'Titulaire' in played_matches.columns else 0
             complete_match_rate = (played_matches['Match complet'].sum() / total_matches * 100) if total_matches > 0 and 'Match complet' in played_matches.columns else 0
+
             col_global1, col_global2, col_global3, col_global4, col_global5 = st.columns(5)
             with col_global1:
                 st.markdown(f"""<div class="stat-box"><div class="stat-value">{total_matches}</div><div class="stat-label">Matchs Joués</div></div>""", unsafe_allow_html=True)
@@ -511,7 +482,8 @@ else:
                 st.markdown(f"""<div class="stat-box"><div class="stat-value">{titularisation_rate:.0f}%</div><div class="stat-label">Taux de Titularisation</div></div>""", unsafe_allow_html=True)
             with col_global5:
                 st.markdown(f"""<div class="stat-box"><div class="stat-value">{complete_match_rate:.0f}%</div><div class="stat-label">% Matchs Complétés</div></div>""", unsafe_allow_html=True)
-            # ---- Dernier match ----
+
+            # Dernier match
             st.markdown("### 📊 Indicateurs de Performance du Dernier Match")
             last_match = player_matches.iloc[-1]
             col1, col2, col3, col4, col5 = st.columns(5)
@@ -535,9 +507,9 @@ else:
                 prog_balls = last_match.get('Ballon sur passe progressive', 0)
                 color = "#10b981" if prog_balls >= 5 else "#f59e0b" if prog_balls >= 2 else "#6b7280"
                 st.markdown(f"""<div class="stat-box" style="border-left:4px solid {color};"><div class="stat-value" style="color:{color};">{int(prog_balls)}</div><div class="stat-label">Ballons sur Passes<br>Progressives</div></div>""", unsafe_allow_html=True)
-            # ---- 2. Efficacité offensive ----
+
+            # 1) Efficacité offensive & finition
             st.markdown('<div class="graph-container"><div class="graph-title">🎯 Efficacité Offensive & Finition</div>', unsafe_allow_html=True)
-            offensive_cols = ['Buts', 'Tir', 'Tir cadre', 'xG']
             df_off = pd.DataFrame([{
                 'Journée': f"J{int(r['Journée'])}",
                 'Buts': r['Buts'] if 'Buts' in player_matches.columns and pd.notna(r.get('Buts')) else 0,
@@ -546,7 +518,8 @@ else:
                 'xG': r['xG'] if 'xG' in player_matches.columns and pd.notna(r.get('xG')) else 0
             } for _, r in player_matches.iterrows()])
             if not df_off.empty:
-                fig_offensive = px.bar(df_off, x='Journée', y=offensive_cols, title='Buts, Tirs, Tirs Cadrés, xG', barmode='group',
+                fig_offensive = px.bar(df_off, x='Journée', y=['Buts','Tir','Tir cadre','xG'], barmode='group',
+                                       title='Buts, Tirs, Tirs Cadrés, xG',
                                        color_discrete_sequence=['#ef4444','#f97316','#10b981','#f59e0b'])
                 fig_offensive.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#cbd5e1',
                                             xaxis_title="Journée", yaxis_title="Valeur", legend_title="Métrique")
@@ -554,11 +527,11 @@ else:
             else:
                 st.info("Données offensives non disponibles.")
             st.markdown('</div>', unsafe_allow_html=True)
-            # ---- 3. Circulation des passes ----
+
+            # 2) Circulation & Distance des passes
             st.markdown('<div class="graph-container"><div class="graph-title">🔄 Circulation & Distance des Passes</div>', unsafe_allow_html=True)
             col_pass1, col_pass2 = st.columns(2)
             with col_pass1:
-                pass_cols = ['Passe courte complete', 'Passe moyenne complete', 'Passe  long complete']
                 df_pass = pd.DataFrame([{
                     'Journée': f"J{int(r['Journée'])}",
                     'Passe courte': r['Passe courte complete'] if 'Passe courte complete' in player_matches.columns and pd.notna(r.get('Passe courte complete')) else 0,
@@ -567,7 +540,8 @@ else:
                 } for _, r in player_matches.iterrows()])
                 if not df_pass.empty:
                     fig_pass = px.bar(df_pass, x='Journée', y=['Passe courte','Passe moyenne','Passe long'], barmode='stack',
-                                      title='Types de Passes Complétées', color_discrete_sequence=['#3b82f6','#10b981','#f59e0b'])
+                                      title='Types de Passes Complétées',
+                                      color_discrete_sequence=['#3b82f6','#10b981','#f59e0b'])
                     fig_pass.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#cbd5e1',
                                            xaxis_title="Journée", yaxis_title="Nombre de passes", legend_title="Type de passe")
                     st.plotly_chart(fig_pass, use_container_width=True)
@@ -579,7 +553,8 @@ else:
                     'Distance (m)': r['Distance passe (m)'] if 'Distance passe (m)' in player_matches.columns and pd.notna(r.get('Distance passe (m)')) else 0
                 } for _, r in player_matches.iterrows()])
                 if not df_pass_dist.empty:
-                    fig_pass_dist = px.line(df_pass_dist, x='Journée', y='Distance (m)', title='Distance Totale des Passes par Match',
+                    fig_pass_dist = px.line(df_pass_dist, x='Journée', y='Distance (m)',
+                                            title='Distance Totale des Passes par Match',
                                             markers=True, line_shape='spline')
                     fig_pass_dist.update_traces(line_color='#8b5cf6', line_width=3, marker_size=8)
                     fig_pass_dist.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#cbd5e1',
@@ -588,7 +563,8 @@ else:
                 else:
                     st.info("Données de distance de passes non disponibles.")
             st.markdown('</div>', unsafe_allow_html=True)
-            # ---- 4. Pression & Récupération ----
+
+            # 3) Pression & Récupération
             st.markdown('<div class="graph-container"><div class="graph-title">🛡️ Pression & Récupération</div>', unsafe_allow_html=True)
             pressure_cols = [c for c in ['Tacle camp','Tacle camp adverse','Perte du ballon par un adversaire'] if c in player_matches.columns]
             if pressure_cols:
@@ -604,7 +580,8 @@ else:
             else:
                 st.info("Données de pression non disponibles.")
             st.markdown('</div>', unsafe_allow_html=True)
-            # ---- 5. Gestion du ballon & Fiabilité ----
+
+            # 4) Gestion du ballon & Fiabilité
             st.markdown('<div class="graph-container"><div class="graph-title">🔁 Gestion du Ballon & Fiabilité</div>', unsafe_allow_html=True)
             col_ball1, col_ball2 = st.columns(2)
             with col_ball1:
@@ -637,10 +614,8 @@ else:
                 else:
                     st.info("Données de taux de passes non disponibles.")
             st.markdown('</div>', unsafe_allow_html=True)
-            # =========================
-            #   ➕ NOUVEAUX GRAPHIQUES
-            # =========================
-            # ---- 6. Répartition des touches par zone (aire empilée) ----
+
+            # 5) Répartition des touches par zone (aire empilée)
             st.markdown('<div class="graph-container"><div class="graph-title">🗺️ Répartition des Touches par Zone</div>', unsafe_allow_html=True)
             zone_map = {
                 'Camp propre': ['Ballon touche dans son camp'],
@@ -648,11 +623,7 @@ else:
                 'Dernier tiers': ['Ballon touche dernier tiers 1/3'],
                 'Surface adverse': ['Ballon touch dans surface','Ballon touche dans surface']
             }
-            # Construire dataframe zones si colonnes existantes
-            available_zone_keys = []
-            for label, opts in zone_map.items():
-                if any(o in player_matches.columns for o in opts):
-                    available_zone_keys.append(label)
+            available_zone_keys = [label for label, opts in zone_map.items() if any(o in player_matches.columns for o in opts)]
             if available_zone_keys:
                 rows = []
                 for _, r in player_matches.iterrows():
@@ -665,24 +636,19 @@ else:
                         row[label] = val
                     rows.append(row)
                 df_zone = pd.DataFrame(rows)
-                df_zone_long = df_zone.melt(id_vars='Journée', value_vars=available_zone_keys,
-                                            var_name='Zone', value_name='Touches')
-                fig_zone = px.area(df_zone_long, x='Journée', y='Touches', color='Zone',
-                                   groupnorm=None, line_group='Zone',
-                                   title="Répartition des touches par zone (par match)")
+                df_zone_long = df_zone.melt(id_vars='Journée', value_vars=available_zone_keys, var_name='Zone', value_name='Touches')
+                fig_zone = px.area(df_zone_long, x='Journée', y='Touches', color='Zone', title="Répartition des touches par zone (par match)")
                 fig_zone.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#cbd5e1',
                                        xaxis_title="Journée", yaxis_title="Touches")
                 st.plotly_chart(fig_zone, use_container_width=True)
             else:
                 st.info("Aucune donnée de touches par zone disponible.")
             st.markdown('</div>', unsafe_allow_html=True)
-            # ---- 7. Duels – Taux de réussite ----
+
+            # 6) Duels – Taux de réussite (par match + jauges globales)
             st.markdown('<div class="graph-container"><div class="graph-title">🧱 Duels – Taux de Réussite</div>', unsafe_allow_html=True)
-            duel_cols_present = {'Duel 1v1 gagne': 'Duel 1v1 total' in player_matches.columns,
-                                 'Duel aérien gagne': all(c in player_matches.columns for c in ['Duel aérien gagne','Duel aérien perdu'])}
             subcol1, subcol2 = st.columns(2)
             with subcol1:
-                # Par match (lignes)
                 lines = []
                 if 'Duel 1v1 gagne' in player_matches.columns and 'Duel 1v1 total' in player_matches.columns:
                     onev1_rate = (player_matches['Duel 1v1 gagne'] / player_matches['Duel 1v1 total'].replace(0, np.nan) * 100).fillna(0)
@@ -703,25 +669,22 @@ else:
                 else:
                     st.info("Pas assez de données pour tracer les taux de duels.")
             with subcol2:
-                # Indicateurs globaux
                 gauge_fig = go.Figure()
-                domain_width = 0.45
-                idx = 0
                 if 'Duel 1v1 gagne' in player_matches.columns and 'Duel 1v1 total' in player_matches.columns:
                     tot = player_matches['Duel 1v1 total'].sum()
                     rate = (player_matches['Duel 1v1 gagne'].sum() / tot * 100) if tot > 0 else 0
-                    gauge_fig.add_trace(go.Indicator(mode="gauge+number", value=rate, domain={'x':[0,domain_width],'y':[0,1]},
+                    gauge_fig.add_trace(go.Indicator(mode="gauge+number", value=rate, domain={'x':[0,0.45],'y':[0,1]},
                                                      title={'text':"1v1 – %"}, gauge={'axis':{'range':[0,100]}}))
-                    idx += 1
                 if all(c in player_matches.columns for c in ['Duel aérien gagne','Duel aérien perdu']):
                     tot = player_matches['Duel aérien gagne'].sum() + player_matches['Duel aérien perdu'].sum()
                     rate = (player_matches['Duel aérien gagne'].sum() / tot * 100) if tot > 0 else 0
                     gauge_fig.add_trace(go.Indicator(mode="gauge+number", value=rate, domain={'x':[0.55,1],'y':[0,1]},
                                                      title={'text':"Aériens – %"}, gauge={'axis':{'range':[0,100]}}))
-                if idx > 0:
+                if len(gauge_fig.data) > 0:
                     st.plotly_chart(gauge_fig, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
-            # ---- 8. Défense par 90 minutes ----
+
+            # 7) Défense par 90’
             st.markdown('<div class="graph-container"><div class="graph-title">🕐 Actions Défensives par 90’</div>', unsafe_allow_html=True)
             if 'Minute jouee' in player_matches.columns:
                 def_cols = [c for c in ['Tacles total','Interception','Recuperation'] if c in player_matches.columns]
@@ -740,7 +703,8 @@ else:
             else:
                 st.info("Pas de minutes jouées → per 90 indisponible.")
             st.markdown('</div>', unsafe_allow_html=True)
-            # ---- 9. Tendances glissantes (3 matchs) ----
+
+            # 8) Tendances glissantes (3 matchs)
             st.markdown('<div class="graph-container"><div class="graph-title">📉 Tendances (Moyenne Mobile 3 matchs)</div>', unsafe_allow_html=True)
             trend_cols = []
             if 'xG' in player_matches.columns: trend_cols.append('xG')
@@ -758,7 +722,8 @@ else:
             else:
                 st.info("Pas de variables suffisantes pour les tendances.")
             st.markdown('</div>', unsafe_allow_html=True)
-            # ---- 10. Cumul Buts vs Cumul xG ----
+
+            # 9) Cumul Buts vs Cumul xG
             st.markdown('<div class="graph-container"><div class="graph-title">➕ Cumul Buts vs Cumul xG</div>', unsafe_allow_html=True)
             if all(c in player_matches.columns for c in ['Buts','xG']):
                 df_cum = pd.DataFrame({
@@ -774,7 +739,8 @@ else:
             else:
                 st.info("Données insuffisantes pour le cumul.")
             st.markdown('</div>', unsafe_allow_html=True)
-            # ---- 11. Matrice de corrélation ----
+
+            # 10) Matrice de corrélation
             st.markdown('<div class="graph-container"><div class="graph-title">🧪 Matrice de Corrélation</div>', unsafe_allow_html=True)
             cand = ['Buts','xG','Tir','Tir cadre','Passe clé','Passe progressive','Tacles total',
                     'Interception','Recuperation','Erreur technique','Taux Passes','Minute jouee',
@@ -792,7 +758,8 @@ else:
             else:
                 st.info("Pas assez de variables numériques pour calculer une corrélation.")
             st.markdown('</div>', unsafe_allow_html=True)
-            # ---- 12. Passes vers zones dangereuses ----
+
+            # 11) Passes vers zones dangereuses
             st.markdown('<div class="graph-container"><div class="graph-title">🎯 Passes dans le Dernier Tiers & Surface</div>', unsafe_allow_html=True)
             pass_zone_cols = [c for c in ['Passe dernier tiers 1/3','Passe dans surface'] if c in player_matches.columns]
             if pass_zone_cols:
@@ -809,7 +776,8 @@ else:
             else:
                 st.info("Pas de colonnes de passes vers zones clés.")
             st.markdown('</div>', unsafe_allow_html=True)
-            # ---- Données brutes ----
+
+            # Données brutes complètes
             st.subheader("📋 Données Brutes Complètes des Matchs")
             match_cols = [
                 'Journée', 'Adversaire', 'Minute jouee', 'Titulaire', 'Buts', 'xG', 'Tir', 'Tir cadre',
@@ -825,8 +793,11 @@ else:
             ]
             available_cols = [c for c in match_cols if c in player_matches.columns]
             st.dataframe(player_matches[available_cols], use_container_width=True)
+
         else:
             st.warning("🚫 Pas assez de données pour générer des graphiques.")
+
+    # --- Tab 3: Wellness ---
     with tab3:
         st.subheader("🧘 Suivi du bien-être & Forme Physique")
         if not player_wellness.empty:
@@ -839,6 +810,7 @@ else:
                 player_wellness['Composite Score'] = player_wellness[composite_cols].mean(axis=1).round(1)
             else:
                 player_wellness['Composite Score'] = np.nan
+
             st.markdown("### 🔑 Indicateurs du dernier suivi")
             last_row = player_wellness.iloc[-1]
             col1, col2, col3, col4 = st.columns(4)
@@ -858,6 +830,7 @@ else:
                 pain = last_row.get('Intensité douleur', 0)
                 color = "#10b981" if pain <= 2 else "#f59e0b" if pain <= 5 else "#ef4444"
                 st.markdown(f"""<div class="stat-box" style="border-left:4px solid {color};"><div class="stat-value" style="color:{color};">{pain}/10</div><div class="stat-label">Douleur</div></div>""", unsafe_allow_html=True)
+
             st.markdown('<div class="graph-container"><div class="graph-title">📈 Évolution de la Forme Globale & Douleur</div>', unsafe_allow_html=True)
             fig_main = go.Figure()
             fig_main.add_trace(go.Scatter(x=player_wellness['DATE'], y=player_wellness['Composite Score'], mode='lines+markers',
@@ -870,6 +843,7 @@ else:
                                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_main, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
+
             col_a, col_b = st.columns(2)
             with col_a:
                 st.markdown('<div class="graph-container"><div class="graph-title">⚡ Énergie & Fraîcheur Musculaire</div>', unsafe_allow_html=True)
@@ -891,6 +865,7 @@ else:
                 fig_mood.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#cbd5e1', xaxis_title="Date", yaxis_title="Score (0-10)", showlegend=True)
                 st.plotly_chart(fig_mood, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
+
             col_c, col_d = st.columns(2)
             with col_c:
                 st.markdown("<div class='graph-container'><div class='graph-title'>🏋️ Qualité d'Entraînement</div>", unsafe_allow_html=True)
@@ -910,6 +885,8 @@ else:
                 else:
                     st.info("Donnée non disponible.")
                 st.markdown('</div>', unsafe_allow_html=True)
+
+            # Timeline + alertes
             st.markdown('<div class="graph-container"><div class="graph-title">📅 Timeline Quotidienne & Alertes</div>', unsafe_allow_html=True)
             player_wellness['Alerte'] = player_wellness.apply(
                 lambda row: "🔴 Alert" if (row.get('Intensité douleur', 0) > 5) or (row.get('Sommeil', 10) < 5) else
@@ -926,6 +903,8 @@ else:
                                        xaxis_title="Date", yaxis_title="Forme Globale (0-10)", showlegend=True)
             st.plotly_chart(fig_timeline, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
+
+            # Données brutes wellness
             st.subheader("📋 Données brutes")
             wellness_cols = [
                 'DATE', 'Energie générale', 'Fraicheur musculaire',
@@ -936,6 +915,7 @@ else:
             st.dataframe(player_wellness[available].sort_values('DATE', ascending=False), use_container_width=True)
         else:
             st.warning("🚫 Aucune donnée de bien-être disponible pour ce joueur.")
+
 # ------------------------------------------------------------------------------
 # 8) Grille des joueurs (si pas en vue détail)
 # ------------------------------------------------------------------------------
@@ -948,17 +928,20 @@ if st.session_state.selected_player_id is None:
     </div>
     """, unsafe_allow_html=True)
     st.markdown('<div class="players-grid">', unsafe_allow_html=True)
+
     for _, prow in filtered_players.iterrows():
         pm = df_matches[df_matches['PlayerID'] == prow['PlayerID']] if 'PlayerID' in df_matches.columns else pd.DataFrame()
         total_goals = int(pm['Buts'].sum()) if not pm.empty and 'Buts' in pm.columns else 0
         total_assists = int(pm['Passe décisive'].sum()) if not pm.empty and 'Passe décisive' in pm.columns else 0
         total_matches = len(pm[pm['Match joue'] == 1]) if not pm.empty and 'Match joue' in pm.columns else len(pm)
-        avg_rating = pm['Minute/titularisation'].mean() if not pm.empty and 'Minute/titularisation' in pm.columns else 0.0
+        avg_rating = float(pm['Minute/titularisation'].mean()) if not pm.empty and 'Minute/titularisation' in pm.columns else 0.0
+
         badges = []
         if total_goals > 0: badges.append("Buteur")
         if total_assists > 0: badges.append("Passeur")
         if avg_rating > 0.5: badges.append("Titulaire")
         if len(badges) == 0: badges.append("En progression")
+
         st.markdown(f"""
         <div class="player-card">
           <div class="player-card-header">
@@ -984,10 +967,14 @@ if st.session_state.selected_player_id is None:
           </div>
         </div>
         """, unsafe_allow_html=True)
+
+        # Bouton pour ouvrir le profil (affiché sous chaque carte)
         if st.button(f"Voir profil {prow['PlayerID']}", key=f"btn_{prow['PlayerID']}", use_container_width=True):
             select_player(int(prow['PlayerID']))
+
     st.markdown('</div></div>', unsafe_allow_html=True)
+
 # ------------------------------------------------------------------------------
-# 9) Pied de page
+# 9) Pied de page (espace)
 # ------------------------------------------------------------------------------
 st.markdown("<div style='height: 100px;'></div>", unsafe_allow_html=True)
