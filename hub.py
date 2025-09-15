@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import os
-import time
 from pathlib import Path
 import streamlit as st
 import pandas as pd
@@ -8,119 +7,161 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-# (Optionnel) auto-refresh
-try:
-    from streamlit_autorefresh import st_autorefresh
-    HAS_AUTOREFRESH = True
-except Exception:
-    HAS_AUTOREFRESH = False
+# ---------- Résolution robuste du chemin + chargement avec invalidation ----------
+from pathlib import Path
+import pandas as pd
+import numpy as np
+import streamlit as st
+import plotly.express as px
+import plotly.graph_objects as go
+import os
+
+# 1) Sélecteur dans la sidebar
+st.sidebar.subheader("⚙️ Source des données (local)")
+# Mets ici TON chemin souhaité (celui que tu as indiqué)
+DEFAULT_USER_INPUT = "/Users/abbesaine/Desktop/Hub/Football-Hub-all-in-one.xlsx"
+user_input_path = st.sidebar.text_input("Chemin Excel", DEFAULT_USER_INPUT).strip()
+
+def resolve_excel_path(filename="Football-Hub-all-in-one.xlsx", user_input=None):
+    """Retourne (best_path: Path|None, tried_paths: list[Path], found_candidates: list[Path])"""
+    tried, found = [], []
+
+    def _add(p):
+        p = Path(p).expanduser()
+        tried.append(p)
+        if p.exists():
+            found.append(p)
+
+    here = Path(__file__).parent
+    home = Path.home()
+    cwd  = Path.cwd()
+
+    # Si l'utilisateur fournit un chemin complet, on essaie d'abord
+    if user_input:
+        _add(user_input)
+
+    # Emplacements classiques
+    _add(cwd / filename)
+    _add(here / filename)
+    _add(home / "Desktop" / filename)
+    _add(home / "Desktop" / "Hub" / filename)
+    _add(home / "Desktop" / "c1-hub" / filename)
+    _add(home / "Documents" / filename)
+    _add(home / "Downloads" / filename)
+
+    # iCloud Desktop (macOS)
+    _add(home / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Desktop" / filename)
+    _add(home / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Desktop" / "Hub" / filename)
+    _add(home / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Desktop" / "c1-hub" / filename)
+
+    # Si rien trouvé, on fouille rapidement Desktop/Documents/Downloads
+    if not found:
+        for root in [home/"Desktop", home/"Documents", home/"Downloads", cwd, here]:
+            if root.exists():
+                for p in root.rglob("*.xlsx"):
+                    if p.name.lower() == filename.lower():
+                        found.append(p)
+                        break
+            if found:
+                break
+
+    best = found[0] if found else None
+    return best, tried, found
+
+excel_path, tried_paths, candidates = resolve_excel_path(
+    filename="Football-Hub-all-in-one.xlsx",
+    user_input=user_input_path if user_input_path else None
+)
+
+# 2) Si rien trouvé : feedback + uploader
+uploaded = None
+if excel_path is None:
+    st.error(f"📂 Fichier introuvable.\n\n"
+             f"Chemin saisi : `{user_input_path or '(vide)'}`\n\n"
+             "✅ Essaye l’un des trucs suivants :\n"
+             "• Corrige le chemin ci-dessus (copie le chemin exact depuis le Finder : clic droit + ⌥ Option → « Copier le nom du chemin »)\n"
+             "• Déplace le fichier à côté du script .py\n"
+             "• Ou importe le fichier ci-dessous.")
+    with st.expander("Chemins testés (debug)"):
+        for p in tried_paths:
+            st.write("—", str(p))
+    uploaded = st.file_uploader("…ou importer le fichier Excel", type=["xlsx"])
+    if not uploaded:
+        st.stop()
+
+# 3) Loader mis en cache et invalidé sur modification du fichier
+@st.cache_data(show_spinner=False)
+def load_data_cached(path_or_buffer, file_mtime: float):
+    xfile = pd.ExcelFile(path_or_buffer)
+
+    def pick_sheet(cands):
+        names = {s.lower().strip(): s for s in xfile.sheet_names}
+        for c in cands:
+            if c in xfile.sheet_names:
+                return c
+            k = c.lower().strip()
+            if k in names:
+                return names[k]
+        raise ValueError(f"Feuille introuvable. Présentes: {xfile.sheet_names}")
+
+    joueur_sheet = pick_sheet(["Joueur","Joueurs","Players"])
+    match_sheet  = pick_sheet(["Match","Matches"])
+    well_sheet   = pick_sheet(["Wellness","Bien-être","Wellbeing"])
+
+    df_players  = pd.read_excel(xfile, sheet_name=joueur_sheet)
+    df_matches  = pd.read_excel(xfile, sheet_name=match_sheet)
+    df_wellness = pd.read_excel(xfile, sheet_name=well_sheet)
+
+    # Nettoyage colonnes
+    for df in (df_players, df_matches, df_wellness):
+        df.columns = (df.columns.astype(str).str.strip().str.replace(r"\s+", " ", regex=True))
+
+    # Typages clés
+    if 'PlayerID' in df_players.columns:
+        df_players = df_players.dropna(subset=['PlayerID']).copy()
+        df_players['PlayerID'] = df_players['PlayerID'].astype(int)
+
+    if 'PlayerID' in df_matches.columns:
+        df_matches = df_matches.dropna(subset=['PlayerID']).copy()
+        df_matches['PlayerID'] = df_matches['PlayerID'].astype(int)
+        # (convertis ici tes colonnes numériques si besoin)
+
+    if 'PlayerID' in df_wellness.columns:
+        df_wellness = df_wellness.dropna(subset=['PlayerID']).copy()
+        df_wellness['PlayerID'] = df_wellness['PlayerID'].astype(int)
+    if 'DATE' in df_wellness.columns:
+        df_wellness['DATE'] = pd.to_datetime(df_wellness['DATE'], errors='coerce')
+        df_wellness = df_wellness.dropna(subset=['DATE'])
+
+    return df_players, df_matches, df_wellness
+
+# 4) Détermine la “source” (fichier local vs upload) + mtime
+if uploaded:
+    # Pour un upload, pas de mtime fiable → on met 0
+    file_mtime = 0.0
+    source = uploaded
+    source_label = "Upload (session)"
+else:
+    file_mtime = excel_path.stat().st_mtime
+    source = str(excel_path)
+    source_label = str(excel_path)
+
+st.sidebar.caption(f"📄 Source : {source_label}")
+
+# 5) Charge les données (cache invalidé dès que le fichier local change)
+df_players, df_matches, df_wellness = load_data_cached(source, file_mtime)
+
+# 6) Petit toast si le fichier a changé depuis le dernier run
+last_mtime = st.session_state.get("_last_mtime")
+if last_mtime is not None and file_mtime != last_mtime:
+    st.toast("✅ Données rechargées (fichier modifié détecté).", icon="🔄")
+st.session_state["_last_mtime"] = file_mtime
+# ---------- fin bloc ----------
 
 # ------------------------------------------------------------------------------
 # 0) Config de page
 # ------------------------------------------------------------------------------
 st.set_page_config(page_title="Football Pro Performance Hub", layout="wide", page_icon="⚽")
-
-# ------------------------------------------------------------------------------
-# Sidebar for file selection and refresh options
-# ------------------------------------------------------------------------------
-st.sidebar.subheader("⚙️ Source des données (local)")
-# Par défaut : fichier à l'emplacement spécifié
-default_guess = Path("/Users/abbesaine/Desktop/Hub/Football-Hub-all-in-one.xlsx")
-excel_path_text = st.sidebar.text_input("Chemin Excel", str(default_guess))
-excel_path = Path(excel_path_text).expanduser()
-
-# Bouton manuel
-if st.sidebar.button("🔄 Recharger maintenant"):
-    st.cache_data.clear()
-    st.rerun() # Utiliser st.rerun() au lieu de st.experimental_rerun()
-
-# Auto-refresh (optionnel)
-auto = HAS_AUTOREFRESH and st.sidebar.toggle("🔁 Auto-refresh", value=True)
-freq = st.sidebar.slider("Fréquence (secondes)", 5, 120, 30) if auto else 0
-if auto:
-    # relance le script toutes les X secondes
-    st_autorefresh(interval=freq * 1000, key="data_refresh")
-
-# ------------------------------------------------------------------------------
-# 1) Chargement ROBUSTE des données (chemins variés + uploader en fallback)
-# ------------------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def load_data_cached(path_str: str, file_mtime: float):
-    """Lit l’Excel. Le cache est invalidé automatiquement quand file_mtime change."""
-    xls_source = path_str
-    xfile = pd.ExcelFile(xls_source)
-    def pick_sheet(possible_names):
-        normalized = {s.lower().strip(): s for s in xfile.sheet_names}
-        for name in possible_names:
-            if name in xfile.sheet_names:
-                return name
-            key = name.lower().strip()
-            if key in normalized:
-                return normalized[key]
-        raise ValueError(
-            f"Feuille introuvable. Essayé: {possible_names}. Feuilles présentes: {xfile.sheet_names}"
-        )
-    joueur_sheet = pick_sheet(["Joueur", "Joueurs", "Players"])
-    match_sheet  = pick_sheet(["Match", "Matches"])
-    well_sheet   = pick_sheet(["Wellness", "Bien-être", "Wellbeing"])
-    df_players  = pd.read_excel(xfile, sheet_name=joueur_sheet)
-    df_matches  = pd.read_excel(xfile, sheet_name=match_sheet)
-    df_wellness = pd.read_excel(xfile, sheet_name=well_sheet)
-    for df in (df_players, df_matches, df_wellness):
-        df.columns = (
-            df.columns.astype(str)
-            .str.strip()
-            .str.replace(r"\s+", " ", regex=True)
-        )
-    # Players
-    df_players = df_players.dropna(subset=['PlayerID']).reset_index(drop=True)
-    df_players['PlayerID'] = df_players['PlayerID'].astype(int)
-    if 'date de naissance' in df_players.columns:
-        df_players['date de naissance'] = pd.to_datetime(df_players['date de naissance'], errors='coerce')
-    # Matches
-    df_matches = df_matches.dropna(subset=['PlayerID']).reset_index(drop=True)
-    df_matches['PlayerID'] = df_matches['PlayerID'].astype(int)
-    numeric_cols_matches = [
-        'Journée', 'Minute jouee', 'Buts', 'Tir', 'Tir cadre', 'xG',
-        'Passe complete', 'Passe tentées', 'Tacles gagne', 'Ballon touche',
-        'Passe décisive', 'Minute/titularisation',
-        'Passe courte complete', 'Passe moyenne complete', 'Passe  long complete',
-        'Duel 1v1 gagne', 'Duel 1v1 total', 'Duel aérien gagne', 'Duel aérien perdu',
-        'Ballon touch dans surface', 'Ballon touche dans son camp',
-        'Ballon touche milieu', 'Ballon touche dernier tiers 1/3',
-        'Interception', 'Recuperation', 'Passe clé', 'Passe progressive',
-        'Tacles total',
-        'Progressive passe distance (m)', 'Distance parcouru avec ballon (m)',
-        'Erreur technique', 'Perte du ballon par un adversaire',
-        'Distance passe (m)', 'Tacle camp', 'Tacle camp adverse',
-        'Match joue', 'Titulaire', 'Match complet', 'Remplaçant', 'Remplaçant non rentré', 'Sortie en cours de match',
-        'Passe dans surface', 'Passe dernier tiers 1/3',
-        'Reception du ballon', 'Ballon sur passe progressive'
-    ]
-    for col in numeric_cols_matches:
-        if col in df_matches.columns:
-            df_matches[col] = pd.to_numeric(df_matches[col], errors='coerce')
-    # Wellness
-    df_wellness = df_wellness.dropna(subset=['PlayerID']).reset_index(drop=True)
-    df_wellness['PlayerID'] = df_wellness['PlayerID'].astype(int)
-    if 'DATE' in df_wellness.columns:
-        df_wellness['DATE'] = pd.to_datetime(df_wellness['DATE'], errors='coerce')
-        df_wellness = df_wellness.dropna(subset=['DATE']).reset_index(drop=True)
-    return df_players, df_matches, df_wellness
-
-# --- Lecture avec invalidation par mtime ---
-if not excel_path.exists():
-    st.error(f"📂 Fichier introuvable : {excel_path}")
-    st.stop()
-
-file_mtime = excel_path.stat().st_mtime  # seconde dernière modif
-df_players, df_matches, df_wellness = load_data_cached(str(excel_path), file_mtime)
-
-# Optionnel : message discret si changement détecté depuis le dernier run
-last_mtime = st.session_state.get("_last_mtime")
-if last_mtime is not None and file_mtime != last_mtime:
-    st.toast("🔁 Données mises à jour depuis la dernière consultation.", icon="✅")
-st.session_state["_last_mtime"] = file_mtime
 
 # ------------------------------------------------------------------------------
 # 2) KPIs agrégés
