@@ -24,15 +24,15 @@ st.set_page_config(page_title="Football Pro Performance Hub", layout="wide", pag
 # Sidebar for file selection and refresh options
 # ------------------------------------------------------------------------------
 st.sidebar.subheader("⚙️ Source des données (local)")
-# Par défaut : fichier à côté du script
-default_guess = Path(__file__).parent / "Football-Hub-all-in-one.xlsx"
+# Par défaut : fichier à l'emplacement spécifié
+default_guess = Path("/Users/abbesaine/Desktop/Hub/Football-Hub-all-in-one.xlsx")
 excel_path_text = st.sidebar.text_input("Chemin Excel", str(default_guess))
 excel_path = Path(excel_path_text).expanduser()
 
 # Bouton manuel
 if st.sidebar.button("🔄 Recharger maintenant"):
     st.cache_data.clear()
-    st.rerun()
+    st.rerun() # Utiliser st.rerun() au lieu de st.experimental_rerun()
 
 # Auto-refresh (optionnel)
 auto = HAS_AUTOREFRESH and st.sidebar.toggle("🔁 Auto-refresh", value=True)
