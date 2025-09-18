@@ -330,7 +330,7 @@ def calculate_kpis(data, total_min, total_matches):
     
     return kpis
 
-# -------------------- CHEMIN RELATIF --------------------
+# -------------------- CHEMIN FIXÉ --------------------
 EXCEL_PATH = Path("data/Football-Hub-all-in-one.xlsx")
 
 if not EXCEL_PATH.exists():
@@ -1292,8 +1292,8 @@ st.markdown(
     <div style="text-align: center; padding: 20px; color: var(--muted);">
         <p>⚽ <strong>Football Hub Analytics</strong> - Analyse de Performance Avancée</p>
         <p>Construit avec ❤️ par votre équipe Data • Les données se synchronisent automatiquement</p>
-        <p style="font-size: 12px;">Version 2.3 • Déploiement Cloud Ready • Wellness Optimisé</p>
+        <p style="font-size: 12px;">Version 2.4 • Déploiement Cloud Ready • Syntaxe Corrigée</p>
     </div>
     """,
     unsafe_allow_html=True
-).
+)
