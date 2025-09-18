@@ -330,7 +330,7 @@ mtime = get_mtime(EXCEL_PATH)
 with st.sidebar:
     if st.button("🔄 Recharger les données", use_container_width=True):
         st.cache_data.clear()
-        st.experimental_rerun()
+        st.rerun()  # CORRIGÉ: Remplace st.experimental_rerun()
 st.sidebar.caption(f"Dernière modification : {pd.to_datetime(mtime, unit='s')}")
 # -------------------- LOAD --------------------
 data = load_data(str(EXCEL_PATH), mtime)
