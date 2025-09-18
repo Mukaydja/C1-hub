@@ -127,7 +127,7 @@ def get_mtime(path: Path) -> float:
 def load_data(path_str: str, mtime: float) -> dict:
     """Charge toutes les feuilles Excel. 'mtime' sert de clé de cache."""
     xl = pd.ExcelFile(path_str, engine="openpyxl")
-    return {name: xl.parse(name) for name in xl.sheet_names}
+    return {name: xl.parse(name).copy(deep=True) for name in xl.sheet_names}
 def to_num(x) -> pd.Series:
     """Série numérique robuste — retourne TOUJOURS une pd.Series"""
     if isinstance(x, pd.Series):
@@ -326,13 +326,23 @@ if not EXCEL_PATH.exists():
         """)
         st.stop()
 mtime = get_mtime(EXCEL_PATH)
-# --- après avoir défini EXCEL_PATH et mtime ---
+
+# --- Auto-reload quand le fichier change ---
+st.sidebar.caption(f"Dernière modification : {pd.to_datetime(mtime, unit='s')}")
+
+if "last_mtime" not in st.session_state:
+    st.session_state["last_mtime"] = mtime
+elif mtime != st.session_state["last_mtime"]:
+    st.session_state["last_mtime"] = mtime
+    st.cache_data.clear()
+    st.rerun()
+
+# --- Bouton de rechargement manuel ---
 with st.sidebar:
     if st.button("🔄 Recharger les données", use_container_width=True):
         st.cache_data.clear()
-        st.rerun()  # Remplace st.experimental_rerun()
+        st.rerun()
 
-st.sidebar.caption(f"Dernière modification : {pd.to_datetime(mtime, unit='s')}")
 # -------------------- LOAD --------------------
 data = load_data(str(EXCEL_PATH), mtime)
 df_players = data.get("Joueur", pd.DataFrame())
