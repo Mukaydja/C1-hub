@@ -348,11 +348,7 @@ with st.sidebar:
 # --- Téléchargement + parsing
 try:
     xlsx_bytes, FILE_SIG, FILE_SIZE = _download_gsheets_as_xlsx(FILE_ID)
-    st.sidebar.markdown("### 🗂️ Source: Google Drive")
-    st.sidebar.write("Taille :", f"{FILE_SIZE:,} octets".replace(",", " "))
-    st.sidebar.write("Hash  :", FILE_SIG[:10], "…")
     data = _parse_excel_bytes(xlsx_bytes, FILE_SIG)
-    st.sidebar.write("Feuilles lues :", list(data.keys()))
 except Exception as e:
     st.error(f"❌ Impossible de charger depuis Drive : {e}")
     st.stop()
