@@ -330,23 +330,39 @@ def calculate_kpis(data, total_min, total_matches):
     
     return kpis
 
-# -------------------- CHEMIN FIXÉ --------------------
-EXCEL_PATH = Path("data/Football-Hub-all-in-one.xlsx")
+# -------------------- CHARGEMENT INTELLIGENT DU FICHIER EXCEL --------------------
+# Détermine le dossier où se trouve le script actuel
+BASE_DIR = Path(__file__).parent
+
+# Chemin par défaut : dossier "Data" au même niveau que le script
+EXCEL_PATH = BASE_DIR / "Data" / "Football-Hub-all-in-one.xlsx"
 
 if not EXCEL_PATH.exists():
     st.error(f"""
-    ❌ Fichier introuvable : `{EXCEL_PATH}`
+    ❌ Fichier introuvable à l'emplacement : `{EXCEL_PATH}`
 
-    ➤ Vérifiez que :
-    1. Le dossier `data/` existe à la racine de votre dépôt GitHub.
-    2. Le fichier `Football-Hub-all-in-one.xlsx` est bien dedans.
-    3. Vous avez poussé les modifications sur GitHub.
-    4. Vous avez cliqué sur "Rebuild app" dans Streamlit Cloud.
-
-    Chemin courant : `{Path.cwd()}`
-    Contenu du dossier : `{[p.name for p in Path('.').iterdir()] if Path('.').exists() else 'Dossier non accessible'}`
+    → Recherche en cours dans tout le dossier du projet...
     """)
-    st.stop()
+    
+    # Recherche récursive dans tout le projet
+    candidates = list(BASE_DIR.rglob("Football-Hub-all-in-one.xlsx"))
+    
+    if candidates:
+        # Prend le premier résultat trouvé
+        EXCEL_PATH = candidates[0]
+        st.success(f"✅ Fichier trouvé ! Nouvel emplacement : `{EXCEL_PATH}`")
+    else:
+        st.error("""
+        ❌ Fichier introuvable dans tout le projet.
+
+        ➤ Vérifiez que :
+        1. Le fichier `Football-Hub-all-in-one.xlsx` existe bien quelque part dans ce dépôt.
+        2. Il est correctement nommé (respectez la casse et les espaces).
+        3. Vous l’avez poussé sur GitHub (il ne suffit pas qu’il soit sur votre ordinateur local).
+
+        Chemin de base : `{BASE_DIR}`
+        """)
+        st.stop()
 
 mtime = get_mtime(EXCEL_PATH)
 st.sidebar.caption(f"Dernière modification : {pd.to_datetime(mtime, unit='s')}")
@@ -1292,7 +1308,7 @@ st.markdown(
     <div style="text-align: center; padding: 20px; color: var(--muted);">
         <p>⚽ <strong>Football Hub Analytics</strong> - Analyse de Performance Avancée</p>
         <p>Construit avec ❤️ par votre équipe Data • Les données se synchronisent automatiquement</p>
-        <p style="font-size: 12px;">Version 2.4 • Déploiement Cloud Ready • Syntaxe Corrigée</p>
+        <p style="font-size: 12px;">Version 2.5 • Chargement Intelligent • Wellness Optimisé • Cloud Ready</p>
     </div>
     """,
     unsafe_allow_html=True
