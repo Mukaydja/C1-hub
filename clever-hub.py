@@ -326,7 +326,6 @@ if not EXCEL_PATH.exists():
         """)
         st.stop()
 mtime = get_mtime(EXCEL_PATH)
-
 # --- Auto-reload quand le fichier change ---
 st.sidebar.caption(f"Dernière modification : {pd.to_datetime(mtime, unit='s')}")
 
