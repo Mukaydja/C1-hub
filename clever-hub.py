@@ -349,7 +349,7 @@ def calculate_kpis(data, total_min, total_matches):
     return kpis
 
 # -------------------- CHEMIN FIXÉ --------------------
-EXCEL_PATH = Path("/Users/amineabbes/Desktop/C1 - 2025/Saison 2025-2026/2- saison 25-26/1-Match Performance/Football-Hub-all-in-one.xlsx")
+EXCEL_PATH = Path("data/Football-Hub-all-in-one.xlsx")
 if not EXCEL_PATH.exists():
     st.error(f"Fichier introuvable : {EXCEL_PATH}")
     st.stop()
