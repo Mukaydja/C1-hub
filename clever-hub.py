@@ -10,8 +10,11 @@ import plotly.figure_factory as ff
 import unicodedata
 from datetime import datetime, timedelta
 import warnings
+import hashlib
+
 warnings.filterwarnings('ignore')
 st.set_page_config(page_title="Football Hub - Analytics", page_icon="⚽", layout="wide")
+
 # -------------------- STYLE AVANCÉ --------------------
 st.markdown(
     """
@@ -117,17 +120,36 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
 # -------------------- HELPERS AVANCÉS --------------------
 def get_mtime(path: Path) -> float:
     try:
         return path.stat().st_mtime
     except FileNotFoundError:
         return 0.0
+
+def file_md5(p: Path) -> str:
+    h = hashlib.md5()
+    with open(p, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def looks_like_lfs_pointer(p: Path) -> bool:
+    try:
+        if p.stat().st_size < 1024:
+            head = p.read_bytes()[:200]
+            return b"git-lfs" in head
+    except Exception:
+        pass
+    return False
+
 @st.cache_data(show_spinner=False)
-def load_data(path_str: str, mtime: float) -> dict:
-    """Charge toutes les feuilles Excel. 'mtime' sert de clé de cache."""
+def load_data(path_str: str, file_sig: str) -> dict:
+    """Charge toutes les feuilles Excel. 'file_sig' sert de clé de cache."""
     xl = pd.ExcelFile(path_str, engine="openpyxl")
     return {name: xl.parse(name).copy(deep=True) for name in xl.sheet_names}
+
 def to_num(x) -> pd.Series:
     """Série numérique robuste — retourne TOUJOURS une pd.Series"""
     if isinstance(x, pd.Series):
@@ -139,11 +161,14 @@ def to_num(x) -> pd.Series:
     else:
         s = pd.Series([str(x)]).str.replace(",", ".", regex=False)
         return pd.to_numeric(s, errors="coerce").fillna(0)
+
 def df_has_cols(df: pd.DataFrame, cols: list) -> bool:
     return all(c in df.columns for c in cols)
+
 def norm_col(c: str) -> str:
     c = unicodedata.normalize("NFKD", str(c)).encode("ascii", "ignore").decode("ascii")
     return c.strip().lower().replace("  ", " ")
+
 def rename_like(df: pd.DataFrame, mapping: dict):
     if df.empty: return df
     norm_map = {col: norm_col(col) for col in df.columns}
@@ -153,6 +178,7 @@ def rename_like(df: pd.DataFrame, mapping: dict):
         if ncol in inv:
             new_names[col] = inv[ncol]
     return df.rename(columns=new_names)
+
 def calculate_performance_score(player_data):
     """Calcule un score de performance global basé sur plusieurs métriques"""
     if player_data.empty:
@@ -198,6 +224,7 @@ def calculate_performance_score(player_data):
         (min(ball_retention_score, 100) * weights['ball_retention'])
     )
     return min(final_score, 100)
+
 def get_performance_badge(score):
     if score >= 80:
         return '<span class="performance-badge badge-excellent">Excellent</span>'
@@ -207,6 +234,7 @@ def get_performance_badge(score):
         return '<span class="performance-badge badge-average">Moyen</span>'
     else:
         return '<span class="performance-badge badge-poor">À améliorer</span>'
+
 def create_radar_chart(data, categories, title="Performance Radar"):
     fig = go.Figure()
     fig.add_trace(go.Scatterpolar(
@@ -239,6 +267,7 @@ def create_radar_chart(data, categories, title="Performance Radar"):
         font=dict(color='#e2e8f0')
     )
     return fig
+
 def predict_performance_trend_manual(x, y, periods_ahead=5):
     if len(x) < 2:
         return None
@@ -262,6 +291,7 @@ def predict_performance_trend_manual(x, y, periods_ahead=5):
         'future_matches': future_x,
         'r_squared': r_squared
     }
+
 def calculate_kpis(data, total_min, total_matches):
     kpis = {}
     passes_tent_col = data.get("Passe tentées", pd.Series([0]))
@@ -299,11 +329,24 @@ def calculate_kpis(data, total_min, total_matches):
     recoveries = to_num(recoveries_col).sum()
     kpis['recoveries_per_90'] = (recoveries / total_min * 90) if total_min > 0 else 0
     return kpis
+
 # -------------------- CHARGEMENT INTELLIGENT DU FICHIER EXCEL --------------------
 # Détermine le dossier où se trouve le script actuel
 BASE_DIR = Path(__file__).parent
 # Chemin par défaut : dossier "Data" au même niveau que le script
 EXCEL_PATH = BASE_DIR / "Data" / "Football-Hub-all-in-one.xlsx"
+
+# --- Panneau "Source des données" + détection Git-LFS ---
+st.sidebar.markdown("### 🗂️ Source des données")
+st.sidebar.code(str(EXCEL_PATH))
+st.sidebar.write("Existe :", EXCEL_PATH.exists())
+if EXCEL_PATH.exists():
+    st.sidebar.write("Taille :", f"{EXCEL_PATH.stat().st_size:,} octets")
+    st.sidebar.write("Modifié :", pd.to_datetime(EXCEL_PATH.stat().st_mtime, unit="s"))
+    if looks_like_lfs_pointer(EXCEL_PATH):
+        st.error("⚠️ Ce fichier ressemble à un **pointeur Git-LFS**. Le binaire réel n’est pas présent. "
+                 "Solution : évite LFS pour ce fichier ou charge tes données depuis un stockage externe (S3/Drive).")
+
 if not EXCEL_PATH.exists():
     st.error(f"""
     ❌ Fichier introuvable à l'emplacement : `{EXCEL_PATH}`
@@ -325,31 +368,36 @@ if not EXCEL_PATH.exists():
         Chemin de base : `{BASE_DIR}`
         """)
         st.stop()
-mtime = get_mtime(EXCEL_PATH)
-# --- Auto-reload quand le fichier change ---
-st.sidebar.caption(f"Dernière modification : {pd.to_datetime(mtime, unit='s')}")
 
-if "last_mtime" not in st.session_state:
-    st.session_state["last_mtime"] = mtime
-elif mtime != st.session_state["last_mtime"]:
-    st.session_state["last_mtime"] = mtime
-    st.cache_data.clear()
-    st.rerun()
+# --- Clé de cache basée sur le hash ---
+FILE_SIG = file_md5(EXCEL_PATH)   # <— change à chaque sauvegarde réelle
+st.sidebar.write("Hash MD5 :", FILE_SIG[:10], "…")
 
-# --- Bouton de rechargement manuel ---
+data = load_data(str(EXCEL_PATH), FILE_SIG)
+
+# --- Bouton "Recharger" + auto-reload ---
 with st.sidebar:
     if st.button("🔄 Recharger les données", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
+# Auto-reload si le hash change (utile en local)
+if "last_sig" not in st.session_state:
+    st.session_state["last_sig"] = FILE_SIG
+elif st.session_state["last_sig"] != FILE_SIG:
+    st.session_state["last_sig"] = FILE_SIG
+    st.cache_data.clear()
+    st.rerun()
+
 # -------------------- LOAD --------------------
-data = load_data(str(EXCEL_PATH), mtime)
 df_players = data.get("Joueur", pd.DataFrame())
 df_match   = data.get("Match", pd.DataFrame())
 df_well    = data.get("Wellness", pd.DataFrame())
+
 for df in (df_players, df_match, df_well):
     if not df.empty and "PlayerID" in df.columns:
         df["PlayerID_norm"] = df["PlayerID"].astype(str).str.strip()
+
 mapping = {
     "minute jouee": "Minute jouee",
     "tir cadre": "Tir cadre",
@@ -372,8 +420,10 @@ mapping = {
     "recuperation du ballon": "Recuperation du ballon",
 }
 df_match = rename_like(df_match, mapping)
+
 if not df_well.empty and "DATE" in df_well.columns:
     df_well["DATE"] = pd.to_datetime(df_well["DATE"], errors="coerce")
+
 # -------------------- SIDEBAR --------------------
 st.sidebar.markdown("### 🎯 Paramètres d'analyse")
 player_map = {}
@@ -384,20 +434,25 @@ if not df_players.empty and {"PlayerID_norm", "Prénom", "Nom"}.issubset(df_play
 elif not df_match.empty and "PlayerID_norm" in df_match.columns:
     for pid in sorted(df_match["PlayerID_norm"].dropna().unique()):
         player_map[str(pid)] = str(pid)
+
 sel_display = st.sidebar.selectbox("🏃 Sélection joueur", list(player_map.keys()) if player_map else [])
 player_id = player_map.get(sel_display) if player_map else None
+
 st.sidebar.markdown("### ⚙️ Options d'analyse")
 show_predictions = st.sidebar.checkbox("📈 Afficher les prédictions", value=True)
 compare_mode = st.sidebar.checkbox("🔄 Mode comparaison", value=False)
 advanced_metrics = st.sidebar.checkbox("📊 Métriques avancées", value=True)
+
 if compare_mode and len(player_map) > 1:
     available_players = [k for k in player_map.keys() if k != sel_display]
     compare_player = st.sidebar.selectbox("👥 Comparer avec", available_players)
     compare_player_id = player_map.get(compare_player)
 else:
     compare_player_id = None
+
 # -------------------- PAGES --------------------
 tabs = st.tabs(["🏠 Dashboard", "📊 Performance", "📈 Projections", "🩺 Wellness", "🔍 Analyse", "📄 Données"])
+
 # ======================= DASHBOARD =======================
 with tabs[0]:
     st.markdown('<div class="hero"><span class="pill">🎯 Dashboard de Performance Joueur</span></div>', unsafe_allow_html=True)
@@ -592,6 +647,7 @@ with tabs[0]:
                         """, unsafe_allow_html=True)
                     else:
                         st.info("Wellness non disponible")
+
 # ======================= PERFORMANCE =======================
 with tabs[1]:
     st.markdown('<div class="hero"><span class="pill">📊 Performance Tactique - Distribution, Offense, Défense</span></div>', unsafe_allow_html=True)
@@ -741,6 +797,7 @@ with tabs[1]:
                     height=600
                 )
                 st.plotly_chart(fig_synthesis, use_container_width=True)
+
 # ======================= PROJECTIONS =======================
 with tabs[2]:
     st.markdown('<div class="hero"><span class="pill">📈 Projections par Régression Linéaire</span></div>', unsafe_allow_html=True)
@@ -848,6 +905,7 @@ with tabs[2]:
                 else:
                     trend_text = "📉 Tendance négative - Travaillez sur ce point."
                 st.success(f"**Interprétation :** {trend_text}")
+
 # ======================= WELLNESS =======================
 with tabs[3]:
     st.markdown('<div class="hero"><span class="pill">🩺 Analyse Wellness & Corrélation Performance</span></div>', unsafe_allow_html=True)
@@ -1007,6 +1065,7 @@ with tabs[3]:
                                         st.error(f"⚠️ {row['Wellness']} a un impact NÉGATIF fort sur {selected_perf_kpi} (r={row['Corrélation']:.2f})")
                                     elif abs(row['Corrélation']) < 0.3:
                                         st.info(f"ℹ️ {row['Wellness']} n'a pas d'impact significatif sur {selected_perf_kpi} (r={row['Corrélation']:.2f})")
+
 # ======================= ANALYSE COMPARATIVE =======================
 with tabs[4]:
     st.markdown('<div class="hero"><span class="pill">🔍 Analyse Comparative Avancée</span></div>', unsafe_allow_html=True)
@@ -1119,6 +1178,7 @@ with tabs[4]:
                     font=dict(color='#e2e8f0')
                 )
                 st.plotly_chart(fig_evolution, use_container_width=True)
+
 # ======================= DONNÉES =======================
 with tabs[5]:
     st.markdown("#### 📄 Données Brutes et Export")
@@ -1180,6 +1240,7 @@ with tabs[5]:
                     file_name=f"football_stats_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                     mime="text/csv"
                 )
+
 # -------------------- FOOTER --------------------
 st.markdown("---")
 st.markdown(
