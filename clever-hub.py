@@ -863,8 +863,8 @@ with tabs[1]:
                         title="Évolution des Minutes Jouées par Match",
                         xaxis_title="Numéro de Match",
                         yaxis_title="Minutes",
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0, 0, 0, 0)',
+                        plot_bgcolor='rgba(0, 0, 0, 0)',
                         font=dict(color='#e2e8f0'),
                         yaxis=dict(range=[0, max(90, max(minutes_per_match) if len(minutes_per_match) > 0 else 90)])
                     )
