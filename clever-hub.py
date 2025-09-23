@@ -334,19 +334,19 @@ BENCHMARKS_PAR_POSTE = {
     }
 }
 
-# -------------------- MAPPING POSTE → COORDONNÉES TERRAIN AJOUTÉ --------------------
+# -------------------- MAPPING POSTE → COORDONNÉES TERRAIN (CORRIGÉ) --------------------
 POSTE_COORDONNEES = {
-    "Gardien de but": (5, 5),
-    "Défenseur axial": (20, 50),
-    "Défenseur latéral droit": (15, 85),
-    "Défenseur latéral gauche": (15, 15),
-    "Milieu relayeur": (50, 50),
-    "Milieu offensif": (70, 50),
-    "Milieu droit": (60, 75),
-    "Milieu gauche": (60, 25),
-    "Attaquant central": (90, 50),
-    "Attaquant de côté droit": (85, 75),
-    "Attaquant de côté gauche": (85, 25),
+    "Gardien de but": (2, 50),           # Tout en bas, au centre
+    "Défenseur axial": (15, 50),         # Dans la défense centrale
+    "Défenseur latéral droit": (15, 85), # Sur le côté droit défensif
+    "Défenseur latéral gauche": (15, 15),# Sur le côté gauche défensif
+    "Milieu relayeur": (50, 50),         # Au centre du terrain
+    "Milieu offensif": (70, 50),         # Dans l'entrejeu, proche de l'attaque
+    "Milieu droit": (60, 75),            # A droite, dans le milieu
+    "Milieu gauche": (60, 25),           # A gauche, dans le milieu
+    "Attaquant central": (90, 50),       # Tout en haut, au centre (dans la surface)
+    "Attaquant de côté droit": (85, 75), # A droite, dans la surface
+    "Attaquant de côté gauche": (85, 25),# A gauche, dans la surface
     # Valeurs par défaut si le poste n'est pas trouvé
     "Défaut": (50, 50),
 }
@@ -491,6 +491,8 @@ with tabs[0]:
     st.write("")
     if player_id is not None:
         col1, col2 = st.columns([1, 2], gap="large")
+        
+        # --- COLONNE 1 : PROFIL + TERRAIN ---
         with col1:
             st.markdown("##### 👤 Profil Joueur")
             if not df_players.empty and "PlayerID_norm" in df_players.columns:
@@ -498,7 +500,6 @@ with tabs[0]:
                 if not p.empty:
                     p = p.iloc[0]
                     initials = (str(p.get("Prénom","")[:1]) + str(p.get("Nom","")[:1])).upper()
-                    # Calculer les minutes totales pour ce joueur
                     total_minutes = 0
                     if not df_match.empty:
                         dm = df_match[df_match["PlayerID_norm"] == player_id]
@@ -559,14 +560,11 @@ with tabs[0]:
                         unsafe_allow_html=True,
                     )
 
-                    # --- AJOUT DU TERRAIN AVEC LA POSITION DU JOUEUR ---
+                    # --- TERRAIN DE FOOTBALL (PLACÉ DANS LA MÊME COLONNE, SOUS LE PROFIL) ---
                     st.markdown("##### 📍 Position sur le Terrain")
-                    # Récupérer le poste détaillé du joueur
                     poste_detail = p.get('Poste Détail', p.get('Poste', 'Défaut'))
-                    # Obtenir les coordonnées
                     x_pos, y_pos = POSTE_COORDONNEES.get(poste_detail, POSTE_COORDONNEES['Défaut'])
 
-                    # Créer le terrain
                     pitch = mplsoccer.Pitch(
                         pitch_type='opta',
                         pitch_color='#0b1220',
@@ -576,19 +574,17 @@ with tabs[0]:
                     )
                     fig, ax = pitch.draw(figsize=(6, 4))
 
-                    # Placer un marqueur à la position du joueur
                     pitch.scatter(
                         x_pos, y_pos,
                         ax=ax,
-                        s=500,  # Taille du point
-                        color='#3b82f6',  # Couleur primaire
-                        edgecolors='white',  # Bordure blanche
+                        s=500,
+                        color='#3b82f6',
+                        edgecolors='white',
                         linewidth=2,
                         alpha=0.9,
-                        zorder=5  # Pour être au-dessus des lignes
+                        zorder=5
                     )
 
-                    # Ajouter un label avec le poste
                     ax.text(
                         x_pos, y_pos + 5,
                         poste_detail,
@@ -600,76 +596,75 @@ with tabs[0]:
                         zorder=6
                     )
 
-                    # Afficher le terrain dans Streamlit
                     st.pyplot(fig, use_container_width=True)
 
-        with col2:
-            st.markdown("##### 📊 KPIs Saison")
-            if not df_match.empty and "PlayerID_norm" in df_match.columns:
-                dm = df_match[df_match["PlayerID_norm"] == player_id].copy()
-                if not dm.empty:
-                    total_minutes = to_num(dm.get("Minutes Jouées")).sum()
-                    total_matches = len(dm)
-                    kpis_season = calculate_kpis(dm, total_minutes, total_matches, player_id, df_players)
-                    # Afficher les minutes jouées en haut de la section
-                    st.markdown(f"##### ⏱️ Minutes Jouées: {int(total_minutes)} (Moyenne: {int(total_minutes/total_matches) if total_matches > 0 else 0}/match)")
-                    # Barre de progression pour les minutes
-                    max_minutes_season = 3420  # 38 matchs * 90 minutes
-                    progress_pct = min(total_minutes / max_minutes_season * 100, 100) if max_minutes_season > 0 else 0
-                    progress_color = "#10b981" if progress_pct > 70 else "#3b82f6" if progress_pct > 40 else "#f59e0b"
-                    st.markdown(
-                        f"""
-                        <div class="progress-bar">
-                            <div class="progress-fill" style="width: {progress_pct}%; background-color: {progress_color};"></div>
-                        </div>
-                        <div style="text-align: right; font-size: 12px; color: var(--muted);">{progress_pct:.1f}% de la saison</div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                    cols = st.columns(3)
-                    with cols[0]:
-                        color = "#10b981" if kpis_season['xg_per_90'] > 0.5 else "#f59e0b" if kpis_season['xg_per_90'] > 0.3 else "#ef4444"
-                        st.markdown(f"""
-                        <div class="metric-card">
-                            <h3>⚽ xG/90</h3>
-                            <div class="value" style="color: {color};">{kpis_season['xg_per_90']:.2f}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    with cols[1]:
-                        color = "#10b981" if kpis_season['pass_accuracy'] > 80 else "#f59e0b" if kpis_season['pass_accuracy'] > 70 else "#ef4444"
-                        st.markdown(f"""
-                        <div class="metric-card">
-                            <h3>✅ Précision</h3>
-                            <div class="value" style="color: {color};">{kpis_season['pass_accuracy']:.1f}%</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    with cols[2]:
-                        color = "#10b981" if kpis_season['duel_win_rate'] > 55 else "#f59e0b" if kpis_season['duel_win_rate'] > 50 else "#ef4444"
-                        st.markdown(f"""
-                        <div class="metric-card">
-                            <h3>🏆 Duels</h3>
-                            <div class="value" style="color: {color};">{kpis_season['duel_win_rate']:.1f}%</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    st.markdown("##### 🕸️ Radar de Performance Tactique")
-                    radar_categories = [
-                        'Précision Passes', 'Passes Prog./90', 'Passes Décisives',
-                        'Précision Tirs', 'xG/90', 'Efficacité',
-                        'Duels Gagnés', 'Interceptions/90', 'Récupérations/90'
-                    ]
-                    radar_values = [
-                        min(kpis_season['pass_accuracy'], 100),
-                        min(kpis_season['prog_passes_per_90'] * 10, 100),
-                        min(kpis_season['key_passes_per_match'] * 50, 100),
-                        min(kpis_season['shot_accuracy'], 100),
-                        min(kpis_season['xg_per_90'] * 150, 100),
-                        min(kpis_season['goals_per_xg'] * 70, 100),
-                        min(kpis_season['duel_win_rate'], 100),
-                        min(kpis_season['interceptions_per_90'] * 30, 100),
-                        min(kpis_season['recoveries_per_90'] * 10, 100)
-                    ]
-                    radar_fig = create_radar_chart(radar_values, radar_categories, "Performance Tactique Complète")
-                    st.plotly_chart(radar_fig, use_container_width=True)
+        # --- SECTION KPIs SAISON (PLACÉE EN DESSOUS DES DEUX COLONNES) ---
+        st.markdown("##### 📊 KPIs Saison")
+        if not df_match.empty and "PlayerID_norm" in df_match.columns:
+            dm = df_match[df_match["PlayerID_norm"] == player_id].copy()
+            if not dm.empty:
+                total_minutes = to_num(dm.get("Minutes Jouées")).sum()
+                total_matches = len(dm)
+                kpis_season = calculate_kpis(dm, total_minutes, total_matches, player_id, df_players)
+                st.markdown(f"##### ⏱️ Minutes Jouées: {int(total_minutes)} (Moyenne: {int(total_minutes/total_matches) if total_matches > 0 else 0}/match)")
+                max_minutes_season = 3420
+                progress_pct = min(total_minutes / max_minutes_season * 100, 100) if max_minutes_season > 0 else 0
+                progress_color = "#10b981" if progress_pct > 70 else "#3b82f6" if progress_pct > 40 else "#f59e0b"
+                st.markdown(
+                    f"""
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: {progress_pct}%; background-color: {progress_color};"></div>
+                    </div>
+                    <div style="text-align: right; font-size: 12px; color: var(--muted);">{progress_pct:.1f}% de la saison</div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                cols = st.columns(3)
+                with cols[0]:
+                    color = "#10b981" if kpis_season['xg_per_90'] > 0.5 else "#f59e0b" if kpis_season['xg_per_90'] > 0.3 else "#ef4444"
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <h3>⚽ xG/90</h3>
+                        <div class="value" style="color: {color};">{kpis_season['xg_per_90']:.2f}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with cols[1]:
+                    color = "#10b981" if kpis_season['pass_accuracy'] > 80 else "#f59e0b" if kpis_season['pass_accuracy'] > 70 else "#ef4444"
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <h3>✅ Précision</h3>
+                        <div class="value" style="color: {color};">{kpis_season['pass_accuracy']:.1f}%</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with cols[2]:
+                    color = "#10b981" if kpis_season['duel_win_rate'] > 55 else "#f59e0b" if kpis_season['duel_win_rate'] > 50 else "#ef4444"
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <h3>🏆 Duels</h3>
+                        <div class="value" style="color: {color};">{kpis_season['duel_win_rate']:.1f}%</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                st.markdown("##### 🕸️ Radar de Performance Tactique")
+                radar_categories = [
+                    'Précision Passes', 'Passes Prog./90', 'Passes Décisives',
+                    'Précision Tirs', 'xG/90', 'Efficacité',
+                    'Duels Gagnés', 'Interceptions/90', 'Récupérations/90'
+                ]
+                radar_values = [
+                    min(kpis_season['pass_accuracy'], 100),
+                    min(kpis_season['prog_passes_per_90'] * 10, 100),
+                    min(kpis_season['key_passes_per_match'] * 50, 100),
+                    min(kpis_season['shot_accuracy'], 100),
+                    min(kpis_season['xg_per_90'] * 150, 100),
+                    min(kpis_season['goals_per_xg'] * 70, 100),
+                    min(kpis_season['duel_win_rate'], 100),
+                    min(kpis_season['interceptions_per_90'] * 30, 100),
+                    min(kpis_season['recoveries_per_90'] * 10, 100)
+                ]
+                radar_fig = create_radar_chart(radar_values, radar_categories, "Performance Tactique Complète")
+                st.plotly_chart(radar_fig, use_container_width=True)
+
+        # --- SYNTHÈSE MATCH (RESTE EN DESSOUS) ---
         st.markdown("##### 🎯 Synthèse Match Spécifique — Améliorée")
         if not df_match.empty:
             dm = df_match[df_match["PlayerID_norm"] == player_id].copy()
@@ -759,6 +754,7 @@ with tabs[0]:
                         """, unsafe_allow_html=True)
                     else:
                         st.info("Wellness non disponible")
+
 # ======================= PERFORMANCE =======================
 with tabs[1]:
     st.markdown('<div class="hero"><span class="pill">📊 Performance Tactique - Distribution, Offense, Défense</span></div>', unsafe_allow_html=True)
