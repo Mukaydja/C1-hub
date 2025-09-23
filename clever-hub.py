@@ -13,6 +13,9 @@ import warnings
 import io
 import hashlib
 import requests
+import matplotlib.pyplot as plt
+from mplsoccer import Pitch
+
 warnings.filterwarnings('ignore')
 st.set_page_config(page_title="Football Hub - Analytics", page_icon="⚽", layout="wide")
 
@@ -142,6 +145,7 @@ def get_mtime(path: Path) -> float:
         return 0.0
 
 def to_num(x) -> pd.Series:
+    """Série numérique robuste — retourne TOUJOURS une pd.Series"""
     if isinstance(x, pd.Series):
         s = x.astype(str).str.replace(",", ".", regex=False)
         return pd.to_numeric(s, errors="coerce").fillna(0)
@@ -170,6 +174,7 @@ def rename_like(df: pd.DataFrame, mapping: dict):
     return df.rename(columns=new_names)
 
 def calculate_performance_score(player_data):
+    """Calcule un score de performance global basé sur plusieurs métriques"""
     if player_data.empty:
         return 0
 
@@ -335,7 +340,7 @@ BENCHMARKS_PAR_POSTE = {
         'interceptions_per_90': 3.0,
         'recoveries_per_90': 7,
     },
-    "Défaut": { 
+    "Défaut": {  # Pour les postes non définis
         'pass_accuracy': 80,
         'prog_passes_per_90': 5,
         'key_passes_per_match': 1.0,
@@ -515,7 +520,7 @@ with tabs[0]:
 
     if player_id is not None:
 
-        # LIGNE 1: Profil + Terrain Vertical
+        # LIGNE 1: Profil Joueur + Terrain Vertical
         st.markdown("##### 👤 Profil Joueur & Position")
         col_profile, col_terrain = st.columns([1, 1], gap="large")
 
@@ -601,6 +606,7 @@ with tabs[0]:
         with col_terrain:
             st.markdown("##### 📍 Position sur le Terrain")
 
+            # Coordonnées des postes sur le terrain (X, Y)
             POSTE_COORDINATES = {
                 "Gardien de but": (5, 50),
                 "Défenseur axial": (20, 50),
@@ -627,53 +633,29 @@ with tabs[0]:
                     poste_detail = p.get('Poste Détail', p.get('Poste', 'Défaut'))
                     x_pos, y_pos = POSTE_COORDINATES.get(poste_detail, POSTE_COORDINATES['Défaut'])
 
-                    fig_terrain = go.Figure()
+                    # Créer un pitch (terrain) avec mplsoccer
+                    pitch = Pitch(pitch_color='#aabb97', line_color='white',
+                                  stripe_color='#c2d59d', stripe=True, figsize=(6, 8))
+                    fig, ax = pitch.draw()
 
-                    # Terrain vertical
-                    fig_terrain.add_shape(type="rect", x0=0, y0=0, x1=100, y1=100,
-                                        line=dict(color="rgba(255,255,255,0.7)", width=3))
+                    # Ajouter le joueur sur le terrain
+                    ax.scatter(x_pos, y_pos, s=200, c='red', edgecolors='black', linewidth=2, zorder=2, label=f"{p.get('Prénom','')[0]}.{p.get('Nom','')[0]}")
+                    ax.annotate(f"{p.get('Prénom','')[0]}.{p.get('Nom','')[0]}", xy=(x_pos, y_pos), xytext=(5, 5), textcoords='offset points',
+                                fontsize=10, color='white', weight='bold', ha='center', va='center', bbox=dict(boxstyle="round,pad=0.3", facecolor="black", alpha=0.8))
 
-                    fig_terrain.add_shape(type="line", x0=50, y0=0, x1=50, y1=100,
-                                        line=dict(color="rgba(255,255,255,0.5)", width=2, dash="dot"))
+                    # Mettre à jour les paramètres de l'image
+                    plt.xlim(0, 100)
+                    plt.ylim(0, 100)
+                    plt.axis('off')
 
-                    fig_terrain.add_shape(type="circle", x0=40, y0=40, x1=60, y1=60,
-                                        line=dict(color="rgba(255,255,255,0.7)", width=2))
+                    # Convertir le graphique matplotlib en image PIL pour Streamlit
+                    buf = io.BytesIO()
+                    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+                    buf.seek(0)
+                    img = Image.open(buf)
 
-                    fig_terrain.add_shape(type="rect", x0=0, y0=25, x1=16.5, y1=75,
-                                        line=dict(color="rgba(255,255,255,0.7)", width=2))
-                    fig_terrain.add_shape(type="rect", x0=0, y0=37, x1=5.5, y1=63,
-                                        line=dict(color="rgba(255,255,255,0.7)", width=2))
-
-                    fig_terrain.add_shape(type="rect", x0=83.5, y0=25, x1=100, y1=75,
-                                        line=dict(color="rgba(255,255,255,0.7)", width=2))
-                    fig_terrain.add_shape(type="rect", x0=94.5, y0=37, x1=100, y1=63,
-                                        line=dict(color="rgba(255,255,255,0.7)", width=2))
-
-                    fig_terrain.add_trace(go.Scatter(
-                        x=[x_pos],
-                        y=[y_pos],
-                        mode='markers+text',
-                        marker=dict(size=15, color='#3b82f6', symbol='circle', line=dict(width=2, color='white')),
-                        text=[f"{p.get('Prénom','')[0]}.{p.get('Nom','')[0]}"],
-                        textposition="middle center",
-                        textfont=dict(size=10, color="white", weight="bold"),
-                        name="Position du Joueur"
-                    ))
-
-                    fig_terrain.update_layout(
-                        title=dict(text=f"Position: {poste_detail}", font=dict(size=16, color='#e2e8f0', weight='bold')),
-                        xaxis=dict(range=[-5, 105], showgrid=False, zeroline=False, showticklabels=False),
-                        yaxis=dict(range=[-5, 105], showgrid=False, zeroline=False, showticklabels=False, scaleanchor="x", scaleratio=1),
-                        plot_bgcolor='#2e8b57',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        font=dict(color='#e2e8f0'),
-                        showlegend=False,
-                        height=300,
-                        margin=dict(l=10, r=10, t=50, b=20),
-                        autosize=False
-                    )
-
-                    st.plotly_chart(fig_terrain, use_container_width=True)
+                    # Afficher l'image dans Streamlit
+                    st.image(img, use_column_width=False, caption=f"Position: {poste_detail}")
 
         # LIGNE 2: KPIs de la Saison
         st.markdown("##### 📊 KPIs Saison")
@@ -1086,7 +1068,6 @@ with tabs[1]:
 with tabs[2]:
     st.markdown('<div class="hero"><span class="pill">📈 Projections par Régression Linéaire</span></div>', unsafe_allow_html=True)
     st.write("")
-
     if player_id is not None and not df_match.empty and show_predictions:
         dm = df_match[df_match["PlayerID_norm"] == player_id].copy()
         if not dm.empty and len(dm) >= 5:
@@ -1227,7 +1208,6 @@ with tabs[2]:
 with tabs[3]:
     st.markdown('<div class="hero"><span class="pill">🩺 Analyse Wellness & Corrélation Performance</span></div>', unsafe_allow_html=True)
     st.write("")
-
     if player_id is not None and not df_well.empty:
         dw = df_well[df_well["PlayerID_norm"] == player_id].copy()
         if not dw.empty and "DATE" in dw.columns:
@@ -1351,7 +1331,6 @@ with tabs[3]:
                                     total_min_scalar = to_num(match_row.get("Minutes Jouées", 0)).iloc[0]
                                     perf_kpis = calculate_kpis(match_df, total_min_scalar, 1, player_id, df_players)
                                     correlation_data.append({**avg_wellness, **perf_kpis})
-
                         if len(correlation_data) >= 3:
                             corr_df = pd.DataFrame(correlation_data)
                             perf_kpi_options = ['xg_per_90', 'duel_win_rate', 'pass_accuracy', 'minutes_jouees']
@@ -1416,7 +1395,6 @@ with tabs[3]:
 with tabs[4]:
     st.markdown('<div class="hero"><span class="pill">🔍 Analyse Comparative Avancée</span></div>', unsafe_allow_html=True)
     st.write("")
-
     if compare_mode and player_id is not None and compare_player_id is not None:
         dm1 = df_match[df_match["PlayerID_norm"] == player_id].copy()
         dm2 = df_match[df_match["PlayerID_norm"] == compare_player_id].copy()
@@ -1454,21 +1432,17 @@ with tabs[4]:
                 passes_tent = to_num(dm.get("Passe tentées", 0)).sum()
                 passes_comp = to_num(dm.get("Passe complete", 0)).sum()
                 pass_eff = (passes_comp / passes_tent * 100) if passes_tent > 0 else 0
-
                 duel_tot_col = "Duel tenté" if "Duel tenté" in dm.columns else "Duel tente"
                 duels_tent = to_num(dm.get(duel_tot_col, 0)).sum()
                 duels_gagnes = to_num(dm.get("Duel gagne", 0)).sum()
                 duel_eff = (duels_gagnes / duels_tent * 100) if duels_tent > 0 else 0
-
                 tirs = to_num(dm.get("Tir", 0)).sum()
                 tirs_cadres = to_num(dm.get("Tir cadre", 0)).sum()
                 tir_eff = (tirs_cadres / tirs * 100) if tirs > 0 else 0
-
                 xg_per_match = to_num(dm.get("xG", 0)).sum() / matches
                 buts_per_match = to_num(dm.get("Buts", 0)).sum() / matches
                 minutes_per_match = to_num(dm.get("Minutes Jouées", 0)).sum() / matches
                 playtime_pct = min(minutes_per_match / 90 * 100, 100)
-
                 return [
                     min(pass_eff, 100),
                     min(duel_eff, 100),
