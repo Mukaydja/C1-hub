@@ -13,6 +13,7 @@ import warnings
 import io
 import hashlib
 import requests
+import mplsoccer
 warnings.filterwarnings('ignore')
 st.set_page_config(page_title="Football Hub - Analytics", page_icon="⚽", layout="wide")
 
@@ -410,7 +411,22 @@ def calculate_kpis(data, total_min, total_matches, player_id=None, df_players=No
     # Ajouter les benchmarks au dictionnaire retourné
     kpis['benchmarks'] = benchmarks
     return kpis
-
+# -------------------- MAPPING POSTE → COORDONNÉES TERRAIN --------------------
+POSTE_COORDONNEES = {
+    "Gardien de but": (5, 5),
+    "Défenseur axial": (20, 50),
+    "Défenseur latéral droit": (15, 85),
+    "Défenseur latéral gauche": (15, 15),
+    "Milieu relayeur": (50, 50),
+    "Milieu offensif": (70, 50),
+    "Milieu droit": (60, 75),
+    "Milieu gauche": (60, 25),
+    "Attaquant central": (90, 50),
+    "Attaquant de côté droit": (85, 75),
+    "Attaquant de côté gauche": (85, 25),
+    # Valeurs par défaut si le poste n'est pas trouvé
+    "Défaut": (50, 50),
+}
 # ==================== GOOGLE SHEETS → XLSX (public) ====================
 FILE_ID = "1giSdEgXz3VytLq9Acn9rlQGbUhNAo2bI"
 
