@@ -490,8 +490,8 @@ with tabs[0]:
     st.markdown('<div class="hero"><span class="pill">🎯 Dashboard de Performance Joueur</span></div>', unsafe_allow_html=True)
     st.write("")
     if player_id is not None:
-        # --- TROIS COLONNES : Profil | Terrain | Espace ---
-        profil_col, terrain_col, espace_col = st.columns([1.2, 0.8, 2.0], gap="large")
+        # --- QUATRE COLONNES : Profil | Espace | Terrain | Espace Final ---
+        profil_col, spacer_col, terrain_col, espace_col = st.columns([1.0, 0.3, 1.2, 1.5], gap="small")
         
         # --- COLONNE 1 : PROFIL JOUEUR (inchangé) ---
         with profil_col:
@@ -561,7 +561,11 @@ with tabs[0]:
                         unsafe_allow_html=True,
                     )
 
-        # --- COLONNE 2 : TERRAIN DE FOOTBALL ---
+        # --- COLONNE 2 : ESPACE VIDE (pour décaler le terrain vers la droite) ---
+        with spacer_col:
+            pass  # Laisser vide
+
+        # --- COLONNE 3 : TERRAIN DE FOOTBALL (agrandi et décalé) ---
         with terrain_col:
             st.markdown("##### 📍 Position sur le Terrain")
             if not df_players.empty and "PlayerID_norm" in df_players.columns:
@@ -578,15 +582,16 @@ with tabs[0]:
                         linewidth=2,
                         goal_type='box'
                     )
-                    fig, ax = pitch.draw(figsize=(6, 4))
+                    # --- AGRANDI ICI ---
+                    fig, ax = pitch.draw(figsize=(10, 7))  # Augmenté de (6,4) à (10,7)
 
                     pitch.scatter(
                         x_pos, y_pos,
                         ax=ax,
-                        s=500,
+                        s=800,  # Augmenté pour plus de visibilité
                         color='#3b82f6',
                         edgecolors='white',
-                        linewidth=2,
+                        linewidth=3,  # Bordure plus épaisse
                         alpha=0.9,
                         zorder=5
                     )
@@ -595,7 +600,7 @@ with tabs[0]:
                         x_pos, y_pos + 5,
                         poste_detail,
                         color='white',
-                        fontsize=10,
+                        fontsize=12,  # Taille de police augmentée
                         ha='center',
                         va='bottom',
                         weight='bold',
@@ -604,7 +609,7 @@ with tabs[0]:
 
                     st.pyplot(fig, use_container_width=True)
 
-        # --- COLONNE 3 : ESPACE VIDE (pour garder l'équilibre) ---
+        # --- COLONNE 4 : ESPACE FINAL (pour équilibrer) ---
         with espace_col:
             pass  # Laisser vide
 
