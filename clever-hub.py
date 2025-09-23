@@ -490,123 +490,123 @@ with tabs[0]:
     st.markdown('<div class="hero"><span class="pill">🎯 Dashboard de Performance Joueur</span></div>', unsafe_allow_html=True)
     st.write("")
     if player_id is not None:
-        # --- COLONNE PRINCIPALE GAUCHE (Profil + Terrain) et COLONNE DROITE (vide pour l'instant) ---
-        col1, col2 = st.columns([1, 2], gap="large")
+        # --- TROIS COLONNES : Profil | Terrain | Espace ---
+        profil_col, terrain_col, espace_col = st.columns([1.2, 0.8, 2.0], gap="large")
         
-        with col1:
-            # --- SOUS-COLONNES : PROFIL à gauche, TERRAIN à droite ---
-            subcol1, subcol2 = st.columns(2, gap="medium")
-            
-            # --- SOUS-COLONNE 1 : PROFIL JOUEUR ---
-            with subcol1:
-                st.markdown("##### 👤 Profil Joueur")
-                if not df_players.empty and "PlayerID_norm" in df_players.columns:
-                    p = df_players[df_players["PlayerID_norm"] == player_id]
-                    if not p.empty:
-                        p = p.iloc[0]
-                        initials = (str(p.get("Prénom","")[:1]) + str(p.get("Nom","")[:1])).upper()
-                        total_minutes = 0
-                        if not df_match.empty:
-                            dm = df_match[df_match["PlayerID_norm"] == player_id]
-                            if not dm.empty:
-                                total_minutes = to_num(dm.get("Minutes Jouées", 0)).sum()
-                                perf_score = calculate_performance_score(dm)
-                                perf_badge = get_performance_badge(perf_score)
-                            else:
-                                perf_score = 0
-                                perf_badge = get_performance_badge(0)
+        # --- COLONNE 1 : PROFIL JOUEUR (inchangé) ---
+        with profil_col:
+            st.markdown("##### 👤 Profil Joueur")
+            if not df_players.empty and "PlayerID_norm" in df_players.columns:
+                p = df_players[df_players["PlayerID_norm"] == player_id]
+                if not p.empty:
+                    p = p.iloc[0]
+                    initials = (str(p.get("Prénom","")[:1]) + str(p.get("Nom","")[:1])).upper()
+                    total_minutes = 0
+                    if not df_match.empty:
+                        dm = df_match[df_match["PlayerID_norm"] == player_id]
+                        if not dm.empty:
+                            total_minutes = to_num(dm.get("Minutes Jouées", 0)).sum()
+                            perf_score = calculate_performance_score(dm)
+                            perf_badge = get_performance_badge(perf_score)
                         else:
                             perf_score = 0
                             perf_badge = get_performance_badge(0)
-                        try:
-                            naissance = str(pd.to_datetime(p.get("date de naissance")).date())
-                        except Exception:
-                            naissance = str(p.get("date de naissance")) if pd.notna(p.get("date de naissance")) else ""
-                        st.markdown(
-                            f"""
-                            <div class="glass">
-                                <div style="display:flex; gap:12px; align-items:center; margin-bottom: 16px;">
-                                    <div class="avatar">{initials}</div>
-                                    <div>
-                                        <div style="font-size: 18px; font-weight: 600; margin-bottom: 4px;">{p.get('Prénom','')} {p.get('Nom','')}</div>
-                                        <div style="color: var(--muted); font-size: 14px;">{p.get('Poste Détail', p.get('Poste',''))} • {p.get('Club','')}</div>
-                                    </div>
-                                </div>
-                                <div style="margin-bottom: 12px;">{perf_badge}</div>
-                                <div class="divider"></div>
-                                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
-                                    <div class="metric-card">
-                                        <h3>Score Global</h3>
-                                        <div class="value" style="color: {'#10b981' if perf_score >= 70 else '#f59e0b' if perf_score >= 50 else '#ef4444'};">{perf_score:.1f}</div>
-                                    </div>
-                                    <div class="metric-card">
-                                        <h3>Minutes</h3>
-                                        <div class="value" style="color: #3b82f6;">{int(total_minutes)}</div>
-                                    </div>
-                                    <div class="metric-card">
-                                        <h3>Taille</h3>
-                                        <div class="value">{p.get('Taille','')} cm</div>
-                                    </div>
-                                    <div class="metric-card">
-                                        <h3>Poids</h3>
-                                        <div class="value">{p.get('Poids','')} kg</div>
-                                    </div>
-                                    <div class="metric-card">
-                                        <h3>Pied Fort</h3>
-                                        <div class="value">{p.get('Pied','')}</div>
-                                    </div>
-                                    <div class="metric-card">
-                                        <h3>Matchs</h3>
-                                        <div class="value" style="color: #8b5cf6;">{len(dm) if 'dm' in locals() else 0}</div>
-                                    </div>
+                    else:
+                        perf_score = 0
+                        perf_badge = get_performance_badge(0)
+                    try:
+                        naissance = str(pd.to_datetime(p.get("date de naissance")).date())
+                    except Exception:
+                        naissance = str(p.get("date de naissance")) if pd.notna(p.get("date de naissance")) else ""
+                    st.markdown(
+                        f"""
+                        <div class="glass">
+                            <div style="display:flex; gap:12px; align-items:center; margin-bottom: 16px;">
+                                <div class="avatar">{initials}</div>
+                                <div>
+                                    <div style="font-size: 18px; font-weight: 600; margin-bottom: 4px;">{p.get('Prénom','')} {p.get('Nom','')}</div>
+                                    <div style="color: var(--muted); font-size: 14px;">{p.get('Poste Détail', p.get('Poste',''))} • {p.get('Club','')}</div>
                                 </div>
                             </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
+                            <div style="margin-bottom: 12px;">{perf_badge}</div>
+                            <div class="divider"></div>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                                <div class="metric-card">
+                                    <h3>Score Global</h3>
+                                    <div class="value" style="color: {'#10b981' if perf_score >= 70 else '#f59e0b' if perf_score >= 50 else '#ef4444'};">{perf_score:.1f}</div>
+                                </div>
+                                <div class="metric-card">
+                                    <h3>Minutes</h3>
+                                    <div class="value" style="color: #3b82f6;">{int(total_minutes)}</div>
+                                </div>
+                                <div class="metric-card">
+                                    <h3>Taille</h3>
+                                    <div class="value">{p.get('Taille','')} cm</div>
+                                </div>
+                                <div class="metric-card">
+                                    <h3>Poids</h3>
+                                    <div class="value">{p.get('Poids','')} kg</div>
+                                </div>
+                                <div class="metric-card">
+                                    <h3>Pied Fort</h3>
+                                    <div class="value">{p.get('Pied','')}</div>
+                                </div>
+                                <div class="metric-card">
+                                    <h3>Matchs</h3>
+                                    <div class="value" style="color: #8b5cf6;">{len(dm) if 'dm' in locals() else 0}</div>
+                                </div>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
 
-            # --- SOUS-COLONNE 2 : TERRAIN DE FOOTBALL ---
-            with subcol2:
-                st.markdown("##### 📍 Position sur le Terrain")
-                if not df_players.empty and "PlayerID_norm" in df_players.columns:
-                    p = df_players[df_players["PlayerID_norm"] == player_id]
-                    if not p.empty:
-                        p = p.iloc[0]
-                        poste_detail = p.get('Poste Détail', p.get('Poste', 'Défaut'))
-                        x_pos, y_pos = POSTE_COORDONNEES.get(poste_detail, POSTE_COORDONNEES['Défaut'])
+        # --- COLONNE 2 : TERRAIN DE FOOTBALL ---
+        with terrain_col:
+            st.markdown("##### 📍 Position sur le Terrain")
+            if not df_players.empty and "PlayerID_norm" in df_players.columns:
+                p = df_players[df_players["PlayerID_norm"] == player_id]
+                if not p.empty:
+                    p = p.iloc[0]
+                    poste_detail = p.get('Poste Détail', p.get('Poste', 'Défaut'))
+                    x_pos, y_pos = POSTE_COORDONNEES.get(poste_detail, POSTE_COORDONNEES['Défaut'])
 
-                        pitch = mplsoccer.Pitch(
-                            pitch_type='opta',
-                            pitch_color='#0b1220',
-                            line_color='#e2e8f0',
-                            linewidth=2,
-                            goal_type='box'
-                        )
-                        fig, ax = pitch.draw(figsize=(6, 4))
+                    pitch = mplsoccer.Pitch(
+                        pitch_type='opta',
+                        pitch_color='#0b1220',
+                        line_color='#e2e8f0',
+                        linewidth=2,
+                        goal_type='box'
+                    )
+                    fig, ax = pitch.draw(figsize=(6, 4))
 
-                        pitch.scatter(
-                            x_pos, y_pos,
-                            ax=ax,
-                            s=500,
-                            color='#3b82f6',
-                            edgecolors='white',
-                            linewidth=2,
-                            alpha=0.9,
-                            zorder=5
-                        )
+                    pitch.scatter(
+                        x_pos, y_pos,
+                        ax=ax,
+                        s=500,
+                        color='#3b82f6',
+                        edgecolors='white',
+                        linewidth=2,
+                        alpha=0.9,
+                        zorder=5
+                    )
 
-                        ax.text(
-                            x_pos, y_pos + 5,
-                            poste_detail,
-                            color='white',
-                            fontsize=10,
-                            ha='center',
-                            va='bottom',
-                            weight='bold',
-                            zorder=6
-                        )
+                    ax.text(
+                        x_pos, y_pos + 5,
+                        poste_detail,
+                        color='white',
+                        fontsize=10,
+                        ha='center',
+                        va='bottom',
+                        weight='bold',
+                        zorder=6
+                    )
 
-                        st.pyplot(fig, use_container_width=True)
+                    st.pyplot(fig, use_container_width=True)
+
+        # --- COLONNE 3 : ESPACE VIDE (pour garder l'équilibre) ---
+        with espace_col:
+            pass  # Laisser vide
 
         # --- SECTION KPIs SAISON (PLACÉE EN DESSOUS) ---
         st.markdown("##### 📊 KPIs Saison")
@@ -764,7 +764,6 @@ with tabs[0]:
                         """, unsafe_allow_html=True)
                     else:
                         st.info("Wellness non disponible")
-
 # ======================= PERFORMANCE =======================
 with tabs[1]:
     st.markdown('<div class="hero"><span class="pill">📊 Performance Tactique - Distribution, Offense, Défense</span></div>', unsafe_allow_html=True)
