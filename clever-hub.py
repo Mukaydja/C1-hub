@@ -335,18 +335,19 @@ BENCHMARKS_PAR_POSTE = {
 }
 
 # -------------------- MAPPING POSTE → COORDONNÉES TERRAIN (CORRIGÉ) --------------------
+# -------------------- MAPPING POSTE → COORDONNÉES TERRAIN (AJUSTÉ POUR LA SURFACE) --------------------
 POSTE_COORDONNEES = {
     "Gardien de but": (2, 50),           # Tout en bas, au centre
-    "Défenseur axial": (15, 50),         # Dans la défense centrale
-    "Défenseur latéral droit": (15, 85), # Sur le côté droit défensif
-    "Défenseur latéral gauche": (15, 15),# Sur le côté gauche défensif
+    "Défenseur axial": (20, 50),         # Dans la défense centrale
+    "Défenseur latéral droit": (20, 80), # Sur le côté droit défensif
+    "Défenseur latéral gauche": (20, 20),# Sur le côté gauche défensif
     "Milieu relayeur": (50, 50),         # Au centre du terrain
     "Milieu offensif": (70, 50),         # Dans l'entrejeu, proche de l'attaque
-    "Milieu droit": (60, 75),            # A droite, dans le milieu
-    "Milieu gauche": (60, 25),           # A gauche, dans le milieu
-    "Attaquant central": (90, 50),       # Tout en haut, au centre (dans la surface)
-    "Attaquant de côté droit": (85, 75), # A droite, dans la surface
-    "Attaquant de côté gauche": (85, 25),# A gauche, dans la surface
+    "Milieu droit": (65, 75),            # A droite, dans le milieu offensif
+    "Milieu gauche": (65, 25),           # A gauche, dans le milieu offensif
+    "Attaquant central": (93, 50),       # DANS la surface de réparation adverse (93 au lieu de 90)
+    "Attaquant de côté droit": (88, 70), # A droite, DANS la surface
+    "Attaquant de côté gauche": (88, 30),# A gauche, DANS la surface
     # Valeurs par défaut si le poste n'est pas trouvé
     "Défaut": (50, 50),
 }
