@@ -584,7 +584,7 @@ with tabs[0]:
                         goal_type='box'
                     )
                     # --- AGRANDI ICI ---
-                    fig, ax = pitch.draw(figsize=(10, 7))  # Augmenté de (6,4) à (10,7)
+                    fig, ax = pitch.draw(figsize=(12, 10))  # Augmenté de (6,4) à (10,7)
 
                     pitch.scatter(
                         x_pos, y_pos,
