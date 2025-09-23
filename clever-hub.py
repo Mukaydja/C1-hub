@@ -519,191 +519,198 @@ with tabs[0]:
     st.write("")
 
     if player_id is not None:
-        col1, col2 = st.columns([1, 2], gap="large")
+        # Créer une seule ligne avec deux colonnes : profil + terrain à gauche, KPIs à droite
+        col_left, col_right = st.columns([1, 2], gap="large")
 
-        with col1:
-            st.markdown("##### 👤 Profil Joueur")
+        with col_left:
+            # Sous-colonnes pour le profil et le terrain côte à côte
+            col_profile, col_terrain = st.columns([1, 1], gap="medium")
 
-            if not df_players.empty and "PlayerID_norm" in df_players.columns:
-                p = df_players[df_players["PlayerID_norm"] == player_id]
-                if not p.empty:
-                    p = p.iloc[0]
-                    initials = (str(p.get("Prénom","")[:1]) + str(p.get("Nom","")[:1])).upper()
+            with col_profile:
+                st.markdown("##### 👤 Profil Joueur")
 
-                    # Calculer les minutes totales pour ce joueur
-                    total_minutes = 0
-                    if not df_match.empty:
-                        dm = df_match[df_match["PlayerID_norm"] == player_id]
-                        if not dm.empty:
-                            total_minutes = to_num(dm.get("Minutes Jouées", 0)).sum()
-                            perf_score = calculate_performance_score(dm)
-                            perf_badge = get_performance_badge(perf_score)
+                if not df_players.empty and "PlayerID_norm" in df_players.columns:
+                    p = df_players[df_players["PlayerID_norm"] == player_id]
+                    if not p.empty:
+                        p = p.iloc[0]
+                        # Calculer les minutes totales pour ce joueur
+                        total_minutes = 0
+                        if not df_match.empty:
+                            dm = df_match[df_match["PlayerID_norm"] == player_id]
+                            if not dm.empty:
+                                total_minutes = to_num(dm.get("Minutes Jouées", 0)).sum()
+                                perf_score = calculate_performance_score(dm)
+                                perf_badge = get_performance_badge(perf_score)
+                            else:
+                                perf_score = 0
+                                perf_badge = get_performance_badge(0)
                         else:
                             perf_score = 0
                             perf_badge = get_performance_badge(0)
-                    else:
-                        perf_score = 0
-                        perf_badge = get_performance_badge(0)
 
-                    try:
-                        naissance = str(pd.to_datetime(p.get("date de naissance")).date())
-                    except Exception:
-                        naissance = str(p.get("date de naissance")) if pd.notna(p.get("date de naissance")) else ""
+                        # --- AJOUT DE LA PHOTO DU JOUEUR ---
+                        # Mapping des IDs de joueur vers les liens directs de leurs photos
+                        drive_file_url_mapping = {
+                            "1": "https://drive.google.com/uc?export=view&id=1exJc1YqXPQZrAMJUL4kAd6PTq6usSQ57", # Mathys Tel
+                            "2": "https://drive.google.com/uc?export=view&id=1exJc1YqXPQZrAMJUL4kAd6PTq6usSQ57", # Ibrahima Diaby
+                            "3": "https://drive.google.com/uc?export=view&id=1WFI58L4AbB71-S6PJ7GanuxbkH4xUGCz", # Kader Meite
+                            "4": "https://drive.google.com/uc?export=view&id=1Fq9519wOssF9PRdgknXeX_xEpfPfusJy"  # Aladji Bamba
+                        }
 
-                    # --- MODIFICATION 1 : AJOUT DE LA PHOTO DU JOUEUR ---
-                    # Mapping des IDs de joueur vers les liens directs de leurs photos
-                    drive_file_url_mapping = {
-                        "1": "https://drive.google.com/uc?export=view&id=1exJc1YqXPQZrAMJUL4kAd6PTq6usSQ57", # Mathys Tel
-                        "2": "https://drive.google.com/uc?export=view&id=1exJc1YqXPQZrAMJUL4kAd6PTq6usSQ57", # Ibrahima Diaby
-                        "3": "https://drive.google.com/uc?export=view&id=1WFI58L4AbB71-S6PJ7GanuxbkH4xUGCz", # Kader Meite
-                        "4": "https://drive.google.com/uc?export=view&id=1Fq9519wOssF9PRdgknXeX_xEpfPfusJy"  # Aladji Bamba
-                    }
+                        def get_player_image_url(player_id_str):
+                            if player_id_str in drive_file_url_mapping:
+                                return drive_file_url_mapping[player_id_str]
+                            else:
+                                return "https://via.placeholder.com/150?text=No+Image"
 
-                    def get_player_image_url(player_id_str):
-                        """
-                        Génère l'URL de l'image du joueur en fonction de son ID.
-                        """
-                        if player_id_str in drive_file_url_mapping:
-                            return drive_file_url_mapping[player_id_str]
-                        else:
-                            # Image par défaut si non trouvée
-                            return "https://via.placeholder.com/150?text=No+Image"
+                        player_image_url = get_player_image_url(player_id)
 
-                    # Générer l'URL de l'image
-                    player_image_url = get_player_image_url(player_id)
-
-                    st.markdown(
-                        f"""
-                        <div class="glass">
-                            <div style="display:flex; gap:12px; align-items:center; margin-bottom: 16px;">
-                                <div style="width: 80px; height: 80px; border-radius: 16px; overflow: hidden; border: 2px solid rgba(255,255,255,0.1);">
-                                    <img src="{player_image_url}" style="width: 100%; height: 100%; object-fit: cover;" alt="Photo du joueur">
+                        st.markdown(
+                            f"""
+                            <div class="glass">
+                                <div style="display:flex; gap:12px; align-items:center; margin-bottom: 16px;">
+                                    <div style="width: 80px; height: 80px; border-radius: 16px; overflow: hidden; border: 2px solid rgba(255,255,255,0.1);">
+                                        <img src="{player_image_url}" style="width: 100%; height: 100%; object-fit: cover;" alt="Photo du joueur">
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 18px; font-weight: 600; margin-bottom: 4px;">{p.get('Prénom','')} {p.get('Nom','')}</div>
+                                        <div style="color: var(--muted); font-size: 14px;">{p.get('Poste Détail', p.get('Poste',''))} • {p.get('Club','')}</div>
+                                    </div>
                                 </div>
-                                <div>
-                                    <div style="font-size: 18px; font-weight: 600; margin-bottom: 4px;">{p.get('Prénom','')} {p.get('Nom','')}</div>
-                                    <div style="color: var(--muted); font-size: 14px;">{p.get('Poste Détail', p.get('Poste',''))} • {p.get('Club','')}</div>
-                                </div>
-                            </div>
-                            <div style="margin-bottom: 12px;">{perf_badge}</div>
-                            <div class="divider"></div>
-                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
-                                <div class="metric-card">
-                                    <h3>Score Global</h3>
-                                    <div class="value" style="color: {'#10b981' if perf_score >= 70 else '#f59e0b' if perf_score >= 50 else '#ef4444'};">{perf_score:.1f}</div>
-                                </div>
-                                <div class="metric-card">
-                                    <h3>Minutes</h3>
-                                    <div class="value" style="color: #3b82f6;">{int(total_minutes)}</div>
-                                </div>
-                                <div class="metric-card">
-                                    <h3>Taille</h3>
-                                    <div class="value">{p.get('Taille','')} cm</div>
-                                </div>
-                                <div class="metric-card">
-                                    <h3>Poids</h3>
-                                    <div class="value">{p.get('Poids','')} kg</div>
-                                </div>
-                                <div class="metric-card">
-                                    <h3>Pied Fort</h3>
-                                    <div class="value">{p.get('Pied','')}</div>
-                                </div>
-                                <div class="metric-card">
-                                    <h3>Matchs</h3>
-                                    <div class="value" style="color: #8b5cf6;">{len(dm) if 'dm' in locals() else 0}</div>
+                                <div style="margin-bottom: 12px;">{perf_badge}</div>
+                                <div class="divider"></div>
+                                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                                    <div class="metric-card">
+                                        <h3>Score Global</h3>
+                                        <div class="value" style="color: {'#10b981' if perf_score >= 70 else '#f59e0b' if perf_score >= 50 else '#ef4444'};">{perf_score:.1f}</div>
+                                    </div>
+                                    <div class="metric-card">
+                                        <h3>Minutes</h3>
+                                        <div class="value" style="color: #3b82f6;">{int(total_minutes)}</div>
+                                    </div>
+                                    <div class="metric-card">
+                                        <h3>Taille</h3>
+                                        <div class="value">{p.get('Taille','')} cm</div>
+                                    </div>
+                                    <div class="metric-card">
+                                        <h3>Poids</h3>
+                                        <div class="value">{p.get('Poids','')} kg</div>
+                                    </div>
+                                    <div class="metric-card">
+                                        <h3>Pied Fort</h3>
+                                        <div class="value">{p.get('Pied','')}</div>
+                                    </div>
+                                    <div class="metric-card">
+                                        <h3>Matchs</h3>
+                                        <div class="value" style="color: #8b5cf6;">{len(dm) if 'dm' in locals() else 0}</div>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
+                            """,
+                            unsafe_allow_html=True,
+                        )
 
-                    # --- MODIFICATION 2 : AJOUT DU TERRAIN DE FOOTBALL ---
-                    st.markdown("##### 📍 Position sur le Terrain")
+            with col_terrain:
+                st.markdown("##### 📍 Position sur le Terrain")
 
-                    # Coordonnées approximatives des postes sur le terrain (X, Y)
-                    # Le terrain va de X=0 (gauche) à X=100 (droite) et Y=0 (bas) à Y=100 (haut)
-                    POSTE_COORDINATES = {
-                        "Gardien de but": (5, 50),
-                        "Défenseur axial": (20, 50),
-                        "Défenseur latéral droit": (25, 85),
-                        "Défenseur latéral gauche": (25, 15),
-                        "Milieu relayeur": (50, 50),
-                        "Milieu offensif": (65, 50),
-                        "Milieu droit": (60, 75),
-                        "Milieu gauche": (60, 25),
-                        "Attaquant central": (85, 50),
-                        "Attaquant droit": (80, 75),
-                        "Attaquant gauche": (80, 25),
-                        # Valeurs par défaut
-                        "Gardien": (5, 50),
-                        "Défenseur": (20, 50),
-                        "Milieu": (50, 50),
-                        "Attaquant": (85, 50),
-                        "Défaut": (50, 50)
-                    }
+                # Coordonnées des postes sur le terrain (X, Y)
+                POSTE_COORDINATES = {
+                    "Gardien de but": (5, 50),
+                    "Défenseur axial": (20, 50),
+                    "Défenseur latéral droit": (25, 85),
+                    "Défenseur latéral gauche": (25, 15),
+                    "Milieu relayeur": (50, 50),
+                    "Milieu offensif": (65, 50),
+                    "Milieu droit": (60, 75),
+                    "Milieu gauche": (60, 25),
+                    "Attaquant central": (85, 50),
+                    "Attaquant droit": (80, 75),
+                    "Attaquant gauche": (80, 25),
+                    "Gardien": (5, 50),
+                    "Défenseur": (20, 50),
+                    "Milieu": (50, 50),
+                    "Attaquant": (85, 50),
+                    "Défaut": (50, 50)
+                }
 
-                    # Récupérer le poste du joueur
-                    poste_detail = p.get('Poste Détail', p.get('Poste', 'Défaut'))
+                # Récupérer le poste du joueur
+                if not df_players.empty and "PlayerID_norm" in df_players.columns:
+                    p = df_players[df_players["PlayerID_norm"] == player_id]
+                    if not p.empty:
+                        p = p.iloc[0]
+                        poste_detail = p.get('Poste Détail', p.get('Poste', 'Défaut'))
+                        x_pos, y_pos = POSTE_COORDINATES.get(poste_detail, POSTE_COORDINATES['Défaut'])
 
-                    # Obtenir les coordonnées
-                    x_pos, y_pos = POSTE_COORDINATES.get(poste_detail, POSTE_COORDINATES['Défaut'])
+                        # Créer le terrain de football
+                        fig_terrain = go.Figure()
 
-                    # Créer le terrain de football
-                    fig_terrain = go.Figure()
+                        # Ajouter les lignes du terrain
+                        fig_terrain.add_shape(type="rect", x0=0, y0=0, x1=100, y1=100,
+                                            line=dict(color="rgba(255,255,255,0.7)", width=3)) # Bordure plus visible
 
-                    # Ajouter les lignes du terrain
-                    # Rectangle extérieur
-                    fig_terrain.add_shape(type="rect", x0=0, y0=0, x1=100, y1=100,
-                                        line=dict(color="white", width=2))
+                        fig_terrain.add_shape(type="line", x0=50, y0=0, x1=50, y1=100,
+                                            line=dict(color="rgba(255,255,255,0.5)", width=2, dash="dot"))
 
-                    # Ligne médiane
-                    fig_terrain.add_shape(type="line", x0=50, y0=0, x1=50, y1=100,
-                                        line=dict(color="white", width=2, dash="dot"))
+                        fig_terrain.add_shape(type="circle", x0=40, y0=40, x1=60, y1=60,
+                                            line=dict(color="rgba(255,255,255,0.7)", width=2))
 
-                    # Cercle central
-                    fig_terrain.add_shape(type="circle", x0=40, y0=40, x1=60, y1=60,
-                                        line=dict(color="white", width=2))
+                        # Surface de réparation gauche
+                        fig_terrain.add_shape(type="rect", x0=0, y0=25, x1=16.5, y1=75,
+                                            line=dict(color="rgba(255,255,255,0.7)", width=2))
+                        fig_terrain.add_shape(type="rect", x0=0, y0=37, x1=5.5, y1=63,
+                                            line=dict(color="rgba(255,255,255,0.7)", width=2))
 
-                    # Surface de réparation (gauche)
-                    fig_terrain.add_shape(type="rect", x0=0, y0=25, x1=16.5, y1=75,
-                                        line=dict(color="white", width=2))
-                    fig_terrain.add_shape(type="rect", x0=0, y0=37, x1=5.5, y1=63,
-                                        line=dict(color="white", width=2))
+                        # Surface de réparation droite
+                        fig_terrain.add_shape(type="rect", x0=83.5, y0=25, x1=100, y1=75,
+                                            line=dict(color="rgba(255,255,255,0.7)", width=2))
+                        fig_terrain.add_shape(type="rect", x0=94.5, y0=37, x1=100, y1=63,
+                                            line=dict(color="rgba(255,255,255,0.7)", width=2))
 
-                    # Surface de réparation (droite)
-                    fig_terrain.add_shape(type="rect", x0=83.5, y0=25, x1=100, y1=75,
-                                        line=dict(color="white", width=2))
-                    fig_terrain.add_shape(type="rect", x0=94.5, y0=37, x1=100, y1=63,
-                                        line=dict(color="white", width=2))
+                        # Marquer la position du joueur
+                        fig_terrain.add_trace(go.Scatter(
+                            x=[x_pos],
+                            y=[y_pos],
+                            mode='markers+text',
+                            marker=dict(size=25, color='#3b82f6', symbol='circle', line=dict(width=3, color='white')),
+                            text=[f"{p.get('Prénom','')[0]}.{p.get('Nom','')[0]}"],
+                            textposition="middle center",
+                            textfont=dict(size=14, color="white", weight="bold"),
+                            name="Position du Joueur"
+                        ))
 
-                    # Marquer la position du joueur
-                    fig_terrain.add_trace(go.Scatter(
-                        x=[x_pos],
-                        y=[y_pos],
-                        mode='markers+text',
-                        marker=dict(size=20, color='#3b82f6', symbol='circle', line=dict(width=2, color='white')),
-                        text=[f"{p.get('Prénom','')[0]}.{p.get('Nom','')[0]}"],
-                        textposition="middle center",
-                        textfont=dict(size=12, color="white", weight="bold"),
-                        name="Position du Joueur"
-                    ))
+                        # Configuration du layout
+                        fig_terrain.update_layout(
+                            title=dict(
+                                text=f"Position: {poste_detail}",
+                                font=dict(size=16, color='#e2e8f0', weight='bold')
+                            ),
+                            xaxis=dict(
+                                range=[-5, 105],
+                                showgrid=False,
+                                zeroline=False,
+                                showticklabels=False
+                            ),
+                            yaxis=dict(
+                                range=[-5, 105],
+                                showgrid=False,
+                                zeroline=False,
+                                showticklabels=False,
+                                scaleanchor="x",  # Garantit un ratio 1:1
+                                scaleratio=1
+                            ),
+                            plot_bgcolor='#1a2e1a',  # Vert foncé pour le gazon
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            font=dict(color='#e2e8f0'),
+                            showlegend=False,
+                            height=400,  # Hauteur fixe pour éviter la compression
+                            margin=dict(l=10, r=10, t=50, b=20),
+                            autosize=False
+                        )
 
-                    # Configuration du layout
-                    fig_terrain.update_layout(
-                        title=f"Position Typique: {poste_detail}",
-                        xaxis=dict(range=[-5, 105], showgrid=False, zeroline=False, showticklabels=False),
-                        yaxis=dict(range=[-5, 105], showgrid=False, zeroline=False, showticklabels=False),
-                        plot_bgcolor='#1a2e1a',  # Vert foncé pour le gazon
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        font=dict(color='#e2e8f0'),
-                        showlegend=False,
-                        height=400,
-                        margin=dict(l=10, r=10, t=40, b=10)
-                    )
+                        # Afficher le terrain sans étirer pour remplir la largeur
+                        st.plotly_chart(fig_terrain, use_container_width=False)
 
-                    st.plotly_chart(fig_terrain, use_container_width=True)
-
-        with col2:
+        with col_right:
             st.markdown("##### 📊 KPIs Saison")
             if not df_match.empty and "PlayerID_norm" in df_match.columns:
                 dm = df_match[df_match["PlayerID_norm"] == player_id].copy()
@@ -712,11 +719,9 @@ with tabs[0]:
                     total_matches = len(dm)
                     kpis_season = calculate_kpis(dm, total_minutes, total_matches, player_id, df_players)
 
-                    # Afficher les minutes jouées en haut de la section
                     st.markdown(f"##### ⏱️ Minutes Jouées: {int(total_minutes)} (Moyenne: {int(total_minutes/total_matches) if total_matches > 0 else 0}/match)")
 
-                    # Barre de progression pour les minutes
-                    max_minutes_season = 3420  # 38 matchs * 90 minutes
+                    max_minutes_season = 3420
                     progress_pct = min(total_minutes / max_minutes_season * 100, 100) if max_minutes_season > 0 else 0
                     progress_color = "#10b981" if progress_pct > 70 else "#3b82f6" if progress_pct > 40 else "#f59e0b"
                     st.markdown(
