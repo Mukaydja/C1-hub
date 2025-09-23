@@ -635,10 +635,23 @@ with tabs[0]:
                     poste_detail = p.get('Poste Détail', p.get('Poste', 'Défaut'))
                     x_pos, y_pos = POSTE_COORDINATES.get(poste_detail, POSTE_COORDINATES['Défaut'])
 
-                    # Créer un pitch (terrain) avec mplsoccer
-                    pitch = Pitch(pitch_color='#aabb97', line_color='white',
-                                  stripe_color='#c2d59d', stripe=True, figsize=(6, 8))
-                    fig, ax = pitch.draw()
+                    # Créer un pitch (terrain) avec mplsoccer (version simplifiée pour éviter les erreurs)
+            pitch = Pitch(half=False) # Utilise les paramètres par défaut de mplsoccer
+            fig, ax = pitch.draw()
+
+            # Ajouter le joueur sur le terrain
+            ax.scatter(x_pos, y_pos, s=200, color='red', edgecolors='black', linewidth=1, zorder=5)
+            ax.text(x_pos, y_pos + 2, poste_detail, ha='center', va='bottom', fontsize=9, color='white', weight='bold')
+
+            # Sauvegarder l'image du pitch dans un buffer
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', dpi=300, bbox_inches='tight', facecolor=fig.get_facecolor(), edgecolor='none')
+            buf.seek(0)
+            plt.close(fig) # Fermer la figure pour libérer la mémoire
+
+            # Afficher l'image dans Streamlit
+            st.image(buf, caption="", use_column_width=True)
+
 
                     # Ajouter le joueur sur le terrain
                     ax.scatter(x_pos, y_pos, s=200, c='red', edgecolors='black', linewidth=2, zorder=2, label=f"{p.get('Prénom','')[0]}.{p.get('Nom','')[0]}")
