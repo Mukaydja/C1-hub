@@ -1,154 +1,26 @@
-# -*- coding: utf-8 -*-
-"""
-Clever Hub - Plateforme d'analyse de performance footballistique
-Version: 2.1
-Auteur: C1 - Data Intelligence Team
-"""
-
-# ======================= IMPORTS =======================
-import streamlit as st
-import pandas as pd
+import os
+from pathlib import Path
 import numpy as np
+import pandas as pd
+import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
-from pathlib import Path
-import json
+from plotly.subplots import make_subplots
+import plotly.figure_factory as ff
 import unicodedata
-import matplotlib.pyplot as plt
-# Import modifié - version simplifiée
-from mplsoccer import Pitch
+from datetime import datetime, timedelta
+import warnings
 import io
+import hashlib
+import requests
+import matplotlib.pyplot as plt
+from mplsoccer import Pitch
 from PIL import Image
+warnings.filterwarnings('ignore')
 
-# ======================= CONFIG =======================
-st.set_page_config(
-    page_title="Clever Hub - Analyse Footballistique",
-    page_icon="⚽",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="Football Hub - Analytics", page_icon="⚽", layout="wide")
 
-# ======================= CONSTANTES =======================
-DATA_DIR = Path("data")
-CACHE_TTL = 300
-POSTE_COORDINATES = {
-    'Gardien': (5, 40),
-    'Défenseur latéral': (20, 15),
-    'Arrière central': (20, 40),
-    'Milieu défensif': (40, 40),
-    'Milieu box': (45, 25),
-    'Milieu relais': (55, 40),
-    'Milieu offensif': (65, 40),
-    'Ailier gauche': (60, 15),
-    'Ailier droit': (60, 65),
-    'Attaquant': (80, 40),
-    'Attaquant relais': (70, 40),
-    'Défaut': (50, 40)
-}
-
-BENCHMARKS = {
-    "Gardien": {
-        'pass_accuracy': 75,
-        'prog_passes_per_90': 8,
-        'key_passes_per_match': 0.5,
-        'shot_accuracy': 25,
-        'xg_per_90': 0.05,
-        'goals_per_xg': 0.8,
-        'duel_win_rate': 40,
-        'interceptions_per_90': 1.0,
-        'recoveries_per_90': 2,
-    },
-    "Défenseur latéral": {
-        'pass_accuracy': 80,
-        'prog_passes_per_90': 6,
-        'key_passes_per_match': 0.8,
-        'shot_accuracy': 20,
-        'xg_per_90': 0.1,
-        'goals_per_xg': 1.2,
-        'duel_win_rate': 55,
-        'interceptions_per_90': 2.0,
-        'recoveries_per_90': 6,
-    },
-    "Arrière central": {
-        'pass_accuracy': 85,
-        'prog_passes_per_90': 5,
-        'key_passes_per_match': 0.3,
-        'shot_accuracy': 20,
-        'xg_per_90': 0.1,
-        'goals_per_xg': 1.5,
-        'duel_win_rate': 60,
-        'interceptions_per_90': 2.5,
-        'recoveries_per_90': 7,
-    },
-    "Milieu défensif": {
-        'pass_accuracy': 88,
-        'prog_passes_per_90': 7,
-        'key_passes_per_match': 1.0,
-        'shot_accuracy': 25,
-        'xg_per_90': 0.15,
-        'goals_per_xg': 1.2,
-        'duel_win_rate': 55,
-        'interceptions_per_90': 2.0,
-        'recoveries_per_90': 8,
-    },
-    "Milieu box": {
-        'pass_accuracy': 82,
-        'prog_passes_per_90': 4,
-        'key_passes_per_match': 1.2,
-        'shot_accuracy': 35,
-        'xg_per_90': 0.25,
-        'goals_per_xg': 1.0,
-        'duel_win_rate': 50,
-        'interceptions_per_90': 2.0,
-        'recoveries_per_90': 6,
-    },
-    "Milieu relais": {
-        'pass_accuracy': 85,
-        'prog_passes_per_90': 6,
-        'key_passes_per_match': 1.8,
-        'shot_accuracy': 30,
-        'xg_per_90': 0.2,
-        'goals_per_xg': 1.1,
-        'duel_win_rate': 50,
-        'interceptions_per_90': 1.8,
-        'recoveries_per_90': 7,
-    },
-    "Milieu offensif": {
-        'pass_accuracy': 82,
-        'prog_passes_per_90': 8,
-        'key_passes_per_match': 1.5,
-        'shot_accuracy': 30,
-        'xg_per_90': 0.3,
-        'goals_per_xg': 1.1,
-        'duel_win_rate': 50,
-        'interceptions_per_90': 1.5,
-        'recoveries_per_90': 6,
-    },
-    "Défenseur axial": {
-        'pass_accuracy': 85,
-        'prog_passes_per_90': 4,
-        'key_passes_per_match': 0.2,
-        'shot_accuracy': 15,
-        'xg_per_90': 0.05,
-        'goals_per_xg': 2.0,
-        'duel_win_rate': 60,
-        'interceptions_per_90': 3.0,
-        'recoveries_per_90': 7,
-    },
-    "Défaut": { # Pour les postes non définis
-        'pass_accuracy': 80,
-        'prog_passes_per_90': 5,
-        'key_passes_per_match': 1.0,
-        'shot_accuracy': 30,
-        'xg_per_90': 0.2,
-        'goals_per_xg': 1.0,
-        'duel_win_rate': 50,
-        'interceptions_per_90': 2.0,
-        'recoveries_per_90': 6,
-    }
-}
-
-# ======================= STYLES =======================
+# - STYLE AVANCÉ -
 st.markdown("""
 <style>
 :root {
@@ -181,7 +53,10 @@ st.markdown("""
     border-radius: 22px;
     padding: 20px 24px;
     border: 1px solid rgba(255,255,255,0.10);
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(16, 185, 129, 0.1));
+    background: linear-gradient(135deg, rgba(26, 32, 44, 0.8), rgba(16, 185, 129, 0.1));
+    border: 1px solid rgba(94,234,212,0.3);
+    border-radius: 16px;
+    padding: 20px;
 }
 
 .pill {
@@ -263,7 +138,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ======================= HELPERS =======================
+# - HELPERS AVANCÉS -
 def get_mtime(path: Path) -> float:
     try:
         return path.stat().st_mtime
@@ -347,6 +222,17 @@ def calculate_performance_score(player_data):
     
     return round(score, 1)
 
+def get_performance_badge(score):
+    """Retourne le badge de performance avec la couleur appropriée"""
+    if score >= 80:
+        return f'<span class="performance-badge" style="background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #10b981;">Excellent ({score})</span>'
+    elif score >= 65:
+        return f'<span class="performance-badge" style="background: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; color: #3b82f6;">Bon ({score})</span>'
+    elif score >= 50:
+        return f'<span class="performance-badge" style="background: rgba(245, 158, 11, 0.2); border: 1px solid #f59e0b; color: #f59e0b;">Moyen ({score})</span>'
+    else:
+        return f'<span class="performance-badge" style="background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #ef4444;">À améliorer ({score})</span>'
+
 def calculate_kpis(data, total_min, total_matches, player_id, df_players):
     """Calcule les KPIs pour un joueur"""
     kpis = {}
@@ -359,7 +245,108 @@ def calculate_kpis(data, total_min, total_matches, player_id, df_players):
             poste = player_info.iloc[0].get('Poste Détail', player_info.iloc[0].get('Poste', 'Défaut'))
     
     # Benchmarks par poste
-    kpis['benchmarks'] = BENCHMARKS.get(poste, BENCHMARKS['Défaut'])
+    benchmarks = {
+        "Gardien": {
+            'pass_accuracy': 75,
+            'prog_passes_per_90': 8,
+            'key_passes_per_match': 0.5,
+            'shot_accuracy': 25,
+            'xg_per_90': 0.05,
+            'goals_per_xg': 0.8,
+            'duel_win_rate': 40,
+            'interceptions_per_90': 1.0,
+            'recoveries_per_90': 2,
+        },
+        "Défenseur latéral": {
+            'pass_accuracy': 80,
+            'prog_passes_per_90': 6,
+            'key_passes_per_match': 0.8,
+            'shot_accuracy': 20,
+            'xG_per_90': 0.1,
+            'goals_per_xg': 1.2,
+            'duel_win_rate': 55,
+            'interceptions_per_90': 2.0,
+            'recoveries_per_90': 6,
+        },
+        "Arrière central": {
+            'pass_accuracy': 85,
+            'prog_passes_per_90': 5,
+            'key_passes_per_match': 0.3,
+            'shot_accuracy': 20,
+            'xG_per_90': 0.1,
+            'goals_per_xg': 1.5,
+            'duel_win_rate': 60,
+            'interceptions_per_90': 2.5,
+            'recoveries_per_90': 7,
+        },
+        "Milieu défensif": {
+            'pass_accuracy': 88,
+            'prog_passes_per_90': 7,
+            'key_passes_per_match': 1.0,
+            'shot_accuracy': 25,
+            'xG_per_90': 0.15,
+            'goals_per_xg': 1.2,
+            'duel_win_rate': 55,
+            'interceptions_per_90': 2.0,
+            'recoveries_per_90': 8,
+        },
+        "Milieu box": {
+            'pass_accuracy': 82,
+            'prog_passes_per_90': 4,
+            'key_passes_per_match': 1.2,
+            'shot_accuracy': 35,
+            'xG_per_90': 0.25,
+            'goals_per_xg': 1.0,
+            'duel_win_rate': 50,
+            'interceptions_per_90': 2.0,
+            'recoveries_per_90': 6,
+        },
+        "Milieu relais": {
+            'pass_accuracy': 85,
+            'prog_passes_per_90': 6,
+            'key_passes_per_match': 1.8,
+            'shot_accuracy': 30,
+            'xG_per_90': 0.2,
+            'goals_per_xg': 1.1,
+            'duel_win_rate': 50,
+            'interceptions_per_90': 1.8,
+            'recoveries_per_90': 7,
+        },
+        "Milieu offensif": {
+            'pass_accuracy': 82,
+            'prog_passes_per_90': 8,
+            'key_passes_per_match': 1.5,
+            'shot_accuracy': 30,
+            'xG_per_90': 0.3,
+            'goals_per_xg': 1.1,
+            'duel_win_rate': 50,
+            'interceptions_per_90': 1.5,
+            'recoveries_per_90': 6,
+        },
+        "Défenseur axial": {
+            'pass_accuracy': 85,
+            'prog_passes_per_90': 4,
+            'key_passes_per_match': 0.2,
+            'shot_accuracy': 15,
+            'xG_per_90': 0.05,
+            'goals_per_xg': 2.0,
+            'duel_win_rate': 60,
+            'interceptions_per_90': 3.0,
+            'recoveries_per_90': 7,
+        },
+        "Défaut": { # Pour les postes non définis
+            'pass_accuracy': 80,
+            'prog_passes_per_90': 5,
+            'key_passes_per_match': 1.0,
+            'shot_accuracy': 30,
+            'xG_per_90': 0.2,
+            'goals_per_xg': 1.0,
+            'duel_win_rate': 50,
+            'interceptions_per_90': 2.0,
+            'recoveries_per_90': 6,
+        }
+    }
+    kpis['benchmarks'] = benchmarks.get(poste, benchmarks['Défaut'])
     
     # Précision des passes
     passes_tent_col = data.get("Passe tentées", pd.Series([0]))
@@ -476,12 +463,12 @@ def calc_radar_metrics(dm):
         playtime_pct
     ]
 
-# ======================= CHARGEMENT DES DONNÉES =======================
-@st.cache_data(ttl=CACHE_TTL)
+# - CHARGEMENT DES DONNÉES -
+@st.cache_data(ttl=300)
 def load_data():
     """Charge toutes les données depuis les fichiers JSON"""
     data = {}
-    for file in DATA_DIR.glob("*.json"):
+    for file in Path("data").glob("*.json"):
         try:
             with open(file, 'r', encoding='utf-8') as f:
                 data[file.stem] = pd.json_normalize(json.load(f))
@@ -490,8 +477,8 @@ def load_data():
             data[file.stem] = pd.DataFrame()
     return data
 
-# ======================= INTERFACE =======================
-st.markdown('<div class="hero"><h1>⚽ Clever Hub</h1><p>Plateforme d\'analyse de performance footballistique</p></div>', unsafe_allow_html=True)
+# - INTERFACE -
+st.markdown('<div class="hero"><h1>⚽ Football Hub</h1><p>Plateforme d\'analyse de performance footballistique</p></div>', unsafe_allow_html=True)
 st.write("")
 
 # Charger les données
@@ -514,7 +501,7 @@ df_well = data.get("Wellness", pd.DataFrame())
 # Normaliser les IDs
 for df in (df_players, df_match, df_well):
     if not df.empty and "PlayerID" in df.columns:
-        df["PlayerID_norm"] = df["PlayerID"].astype(str).str.strip()
+        df["PlayerID_norm"] = df["PlayerID"].astype(str).strip()
 
 # Mapping des colonnes
 mapping = {
@@ -527,33 +514,23 @@ mapping = {
     "passe longue tentee": "Passe longue tentée",
     "passe longue complete": "Passe longue complète",
     "duel tente": "Duel tenté",
-    "duel gagne": "Duel gagne",
-    "ballon recupere": "Ballon récupéré",
-    "passe decisive": "Passe decisive",
-    "passe progressive": "Passe progressive",
-    "interception": "Interception",
+    "duel gagne": "Duel gagné",
+    "duel aérien gagné": "Duel aérien gagné",
+    "duel aérien perdu": "Duel aérien perdu",
+    "distance parcourue avec ballon": "Distance parcouru avec ballon (m)",
+    "distance parcourue progression": "Distance parcouru progression(m)",
+    "ballon touche haute": "Ballon touché haute",
+    "ballon touche médian": "Ballon touché médian",
+    "ballon touche basse": "Ballon touché basse",
+    "ballon touche surface": "Ballon touché surface",
     "recuperation du ballon": "Recuperation du ballon",
-    "ballon perdu": "Ballon perdu",
-    "faute commise": "Faute commise",
-    "faute subie": "Faute subie",
-    "but": "Buts",
-    "tir": "Tir",
-    "tackle": "Tackle",
-    "duel aerien gagne": "Duel aérien gagné",
-    "duel aerien perdu": "Duel aérien perdu",
-    "duel au sol gagne": "Duel au sol gagné",
-    "duel au sol perdu": "Duel au sol perdu"
 }
-
-# Renommer les colonnes
-df_players = rename_like(df_players, mapping)
 df_match = rename_like(df_match, mapping)
 
-# Convertir les dates
 if not df_well.empty and "DATE" in df_well.columns:
     df_well["DATE"] = pd.to_datetime(df_well["DATE"], errors="coerce")
 
-# ======================= SIDEBAR =======================
+# - SIDEBAR -
 st.sidebar.markdown("### 🎯 Paramètres d'analyse")
 
 # Créer la map joueur
@@ -581,10 +558,10 @@ if compare_mode and player_id:
         compare_player = st.sidebar.selectbox("👥 Joueur à comparer", list(other_players.keys()))
         compare_player_id = other_players.get(compare_player)
 
-# ======================= ONGLETS =======================
-tabs = st.tabs(["📊 Dashboard", "📋 Données Brutes", "📈 Performance Saison", "🎯 Analyse Match", "🔍 Analyse Comparative"])
+# - ONGLETS -
+tabs = st.tabs(["📊 Dashboard", "📈 Performance Saison", "🎯 Analyse Match", "🔍 Analyse Comparative", "📋 Données Brutes", "🧠 Modélisation ML"])
 
-# ======================= DASHBOARD =======================
+# - DASHBOARD -
 with tabs[0]:
     st.markdown('<div class="hero"><span class="pill">📊 Vue d\'ensemble du joueur</span></div>', unsafe_allow_html=True)
     st.write("")
@@ -608,6 +585,7 @@ with tabs[0]:
                             total_minutes = to_num(dm.get("Minutes Jouées", 0)).sum()
                     
                     perf_score = calculate_performance_score(dm if 'dm' in locals() and not dm.empty else pd.DataFrame())
+                    perf_badge = get_performance_badge(perf_score)
                     
                     # Afficher les infos du joueur
                     st.markdown(f"""
@@ -644,6 +622,7 @@ with tabs[0]:
                             <div style="font-size: 28px; font-weight: 800; color: {'#10b981' if perf_score > 70 else '#f59e0b' if perf_score > 50 else '#ef4444'};">
                                 {perf_score}/100
                             </div>
+                            <div>{perf_badge}</div>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -654,27 +633,49 @@ with tabs[0]:
                 if not p.empty:
                     p = p.iloc[0]
                     poste_detail = p.get('Poste Détail', p.get('Poste', 'Défaut'))
+                    
+                    # Coordonnées par poste
+                    POSTE_COORDINATES = {
+                        'Gardien': (5, 40),
+                        'Défenseur latéral': (20, 15),
+                        'Arrière central': (20, 40),
+                        'Milieu défensif': (40, 40),
+                        'Milieu box': (45, 25),
+                        'Milieu relais': (55, 40),
+                        'Milieu offensif': (65, 40),
+                        'Ailier gauche': (60, 15),
+                        'Ailier droit': (60, 65),
+                        'Attaquant': (80, 40),
+                        'Attaquant relais': (70, 40),
+                        'Défaut': (50, 40)
+                    }
                     x_pos, y_pos = POSTE_COORDINATES.get(poste_detail, POSTE_COORDINATES['Défaut'])
                     
-                    # ==================== MODIFICATION ICI ====================
-                    # Créer un pitch (terrain) avec mplsoccer (version simplifiée)
+                    # Créer un pitch (terrain) avec mplsoccer
+                    # Modification ici: ligne 639
                     pitch = Pitch(half=False) # Utilise les paramètres par défaut de mplsoccer
                     fig, ax = pitch.draw()
-                    # ==========================================================
-
+                    
                     # Ajouter le joueur sur le terrain
-                    ax.scatter(x_pos, y_pos, s=200, color='red', edgecolors='black', linewidth=1, zorder=5)
-                    ax.text(x_pos, y_pos + 2, poste_detail, ha='center', va='bottom', fontsize=9, color='white', weight='bold')
-
-                    # Sauvegarder l'image du pitch dans un buffer
+                    ax.scatter(x_pos, y_pos, s=200, c='red', edgecolors='black', linewidth=2, zorder=2, label=f"{p.get('Prénom','')[0]}.{p.get('Nom','')[0]}")
+                    ax.annotate(f"{p.get('Prénom','')[0]}.{p.get('Nom','')[0]}", xy=(x_pos, y_pos), xytext=(5, 5), textcoords='offset points',
+                                fontsize=10, color='white', weight='bold', ha='center', va='center',
+                                bbox=dict(boxstyle="round,pad=0.3", facecolor="black", alpha=0.8))
+                    
+                    # Mettre à jour les paramètres de l'image
+                    plt.xlim(0, 100)
+                    plt.ylim(0, 100)
+                    plt.axis('off')
+                    
+                    # Convertir le graphique matplotlib en image PIL pour Streamlit
                     buf = io.BytesIO()
                     fig.savefig(buf, format='png', dpi=300, bbox_inches='tight', facecolor=fig.get_facecolor(), edgecolor='none')
                     buf.seek(0)
                     plt.close(fig) # Fermer la figure pour libérer la mémoire
-
+                    
                     # Afficher l'image dans Streamlit
                     st.image(buf, caption="", use_column_width=True)
-
+        
         # LIGNE 2: KPIs de la Saison
         st.markdown("##### 📊 KPIs Saison")
         if not df_match.empty and "PlayerID_norm" in df_match.columns:
@@ -802,62 +803,8 @@ with tabs[0]:
                 )
                 st.plotly_chart(fig_kpi, use_container_width=True)
 
-# ======================= DONNÉES BRUTES =======================
+# - PERFORMANCE SAISON -
 with tabs[1]:
-    st.markdown('<div class="hero"><span class="pill">📋 Données Brutes</span></div>', unsafe_allow_html=True)
-    st.write("")
-    
-    data_view = st.radio("Type de données", ["Joueurs", "Matchs", "Wellness", "Statistiques agrégées"], horizontal=True)
-    
-    if data_view == "Joueurs":
-        st.markdown("**👥 Données Joueurs**")
-        if player_id:
-            dp_filtered = df_players[df_players["PlayerID_norm"] == player_id]
-            st.dataframe(dp_filtered, use_container_width=True)
-        else:
-            st.dataframe(df_players.head(50), use_container_width=True)
-            
-    elif data_view == "Matchs":
-        st.markdown("**⚽ Données Matchs**")
-        if player_id:
-            dm_filtered = df_match[df_match["PlayerID_norm"] == player_id]
-            st.dataframe(dm_filtered, use_container_width=True)
-        else:
-            st.dataframe(df_match.head(50), use_container_width=True)
-            
-    elif data_view == "Wellness":
-        st.markdown("**🩺 Données Wellness**")
-        if player_id:
-            dw_filtered = df_well[df_well["PlayerID_norm"] == player_id]
-            st.dataframe(dw_filtered, use_container_width=True)
-        else:
-            st.dataframe(df_well.head(50), use_container_width=True)
-            
-    elif data_view == "Statistiques agrégées":
-        st.markdown("**📈 Statistiques Agrégées par Joueur**")
-        if not df_match.empty and "PlayerID_norm" in df_match.columns:
-            agg_stats = []
-            for pid in df_match["PlayerID_norm"].unique():
-                dm_player = df_match[df_match["PlayerID_norm"] == pid]
-                if not dm_player.empty:
-                    stats = {
-                        'PlayerID': pid,
-                        'Matchs': len(dm_player),
-                        'Minutes_Total': int(to_num(dm_player.get("Minutes Jouées", 0)).sum()),
-                        'Buts': int(to_num(dm_player.get("Buts", 0)).sum()),
-                        'xG': float(to_num(dm_player.get("xG", 0)).sum()),
-                        'Tirs': int(to_num(dm_player.get("Tir", 0)).sum()),
-                        'Passes_Completes': int(to_num(dm_player.get("Passe complete", 0)).sum()),
-                        'Duels_Gagnes': int(to_num(dm_player.get("Duel gagne", 0)).sum()),
-                        'Score_Performance': calculate_performance_score(dm_player)
-                    }
-                    agg_stats.append(stats)
-            
-            df_agg = pd.DataFrame(agg_stats)
-            st.dataframe(df_agg, use_container_width=True)
-
-# ======================= PERFORMANCE SAISON =======================
-with tabs[2]:
     st.markdown('<div class="hero"><span class="pill">📈 Performance Saison</span></div>', unsafe_allow_html=True)
     st.write("")
     
@@ -906,8 +853,8 @@ with tabs[2]:
                 )
                 st.plotly_chart(fig_score, use_container_width=True)
 
-# ======================= ANALYSE MATCH =======================
-with tabs[3]:
+# - ANALYSE MATCH -
+with tabs[2]:
     st.markdown('<div class="hero"><span class="pill">🎯 Analyse Match</span></div>', unsafe_allow_html=True)
     st.write("")
     
@@ -1105,8 +1052,8 @@ with tabs[3]:
                 
                 st.markdown("---")
 
-# ======================= ANALYSE COMPARATIVE =======================
-with tabs[4]:
+# - ANALYSE COMPARATIVE -
+with tabs[3]:
     st.markdown('<div class="hero"><span class="pill">🔍 Analyse Comparative Avancée</span></div>', unsafe_allow_html=True)
     st.write("")
     
@@ -1208,6 +1155,227 @@ with tabs[4]:
             df_comp = pd.DataFrame(comp_data)
             st.dataframe(df_comp, use_container_width=True)
 
-# ======================= FOOTER =======================
+# - DONNÉES BRUTES -
+with tabs[4]:
+    st.markdown('<div class="hero"><span class="pill">📋 Données Brutes</span></div>', unsafe_allow_html=True)
+    st.write("")
+    
+    data_view = st.selectbox("Vue des données", ["Joueurs", "Matchs", "Wellness", "Statistiques agrégées"])
+    
+    if data_view == "Joueurs":
+        st.markdown("**👥 Données Joueurs**")
+        if player_id:
+            dp_filtered = df_players[df_players["PlayerID_norm"] == player_id]
+            st.dataframe(dp_filtered, use_container_width=True)
+        else:
+            st.dataframe(df_players.head(50), use_container_width=True)
+            
+    elif data_view == "Matchs":
+        st.markdown("**⚽ Données Matchs**")
+        if player_id:
+            dm_filtered = df_match[df_match["PlayerID_norm"] == player_id]
+            st.dataframe(dm_filtered, use_container_width=True)
+        else:
+            st.dataframe(df_match.head(50), use_container_width=True)
+            
+    elif data_view == "Wellness":
+        st.markdown("**🩺 Données Wellness**")
+        if player_id:
+            dw_filtered = df_well[df_well["PlayerID_norm"] == player_id]
+            st.dataframe(dw_filtered, use_container_width=True)
+        else:
+            st.dataframe(df_well.head(50), use_container_width=True)
+            
+    elif data_view == "Statistiques agrégées":
+        st.markdown("**📈 Statistiques Agrégées par Joueur**")
+        if not df_match.empty and "PlayerID_norm" in df_match.columns:
+            agg_stats = []
+            for pid in df_match["PlayerID_norm"].unique():
+                dm_player = df_match[df_match["PlayerID_norm"] == pid]
+                if not dm_player.empty:
+                    stats = {
+                        'PlayerID': pid,
+                        'Matchs': len(dm_player),
+                        'Minutes_Total': int(to_num(dm_player.get("Minutes Jouées", 0)).sum()),
+                        'Buts': int(to_num(dm_player.get("Buts", 0)).sum()),
+                        'xG': float(to_num(dm_player.get("xG", 0)).sum()),
+                        'Tirs': int(to_num(dm_player.get("Tir", 0)).sum()),
+                        'Passes_Completes': int(to_num(dm_player.get("Passe complete", 0)).sum()),
+                        'Duels_Gagnes': int(to_num(dm_player.get("Duel gagne", 0)).sum()),
+                        'Score_Performance': calculate_performance_score(dm_player)
+                    }
+                    agg_stats.append(stats)
+            
+            df_agg = pd.DataFrame(agg_stats)
+            st.dataframe(df_agg, use_container_width=True)
+
+# - MODÉLISATION ML -
+with tabs[5]:
+    st.markdown('<div class="hero"><span class="pill">🧠 Modélisation ML</span></div>', unsafe_allow_html=True)
+    st.write("")
+    
+    if player_id and not df_match.empty:
+        dm_ml = df_match[df_match["PlayerID_norm"] == player_id].copy()
+        if not dm_ml.empty:
+            st.markdown("##### 📈 Prédiction de Performance Future")
+            
+            # Sélection du KPI à prédire
+            kpi_options = {
+                'Minutes Jouées': 'minutes_jouees',
+                'xG': 'xg',
+                'Buts': 'buts',
+                'Passes Complétées': 'passes_completes',
+                'Duels Gagnés': 'duels_gagnes'
+            }
+            selected_kpi_name = st.selectbox("Sélectionner le KPI à prédire", list(kpi_options.keys()))
+            selected_kpi_key = kpi_options[selected_kpi_name]
+            
+            # Nombre de périodes à prédire
+            periods_ahead = st.slider("Nombre de matchs à prédire", 1, 10, 5, key="ml_periods")
+            
+            # Calculer les KPIs historiques
+            historical_kpis = []
+            for i in range(len(dm_ml)):
+                match_slice = dm_ml.iloc[:i+1]
+                total_min = to_num(match_slice.get("Minutes Jouées", 0)).sum()
+                total_matches = len(match_slice)
+                
+                if selected_kpi_key == 'minutes_jouees':
+                    current_match_minutes = to_num(match_slice.iloc[-1].get("Minutes Jouées", 0)).iloc[0]
+                    historical_kpis.append(current_match_minutes)
+                else:
+                    kpi_dict = calculate_kpis(match_slice, total_min, total_matches, player_id, df_players)
+                    if selected_kpi_key == 'xg':
+                        historical_kpis.append(kpi_dict['xg_per_90'])
+                    elif selected_kpi_key == 'buts':
+                        historical_kpis.append(to_num(match_slice.iloc[-1].get("Buts", 0)).iloc[0])
+                    elif selected_kpi_key == 'passes_completes':
+                        historical_kpis.append(to_num(match_slice.iloc[-1].get("Passe complete", 0)).iloc[0])
+                    elif selected_kpi_key == 'duels_gagnes':
+                        historical_kpis.append(to_num(match_slice.iloc[-1].get("Duel gagne", 0)).iloc[0])
+            
+            # Créer les données pour la régression linéaire
+            X = np.array(range(1, len(historical_kpis) + 1)).reshape(-1, 1)
+            y = np.array(historical_kpis)
+            
+            # Diviser les données en train et test
+            split_idx = int(0.8 * len(X))
+            X_train, X_test = X[:split_idx], X[split_idx:]
+            y_train, y_test = y[:split_idx], y[split_idx:]
+            
+            # Entraîner le modèle (régression linéaire simple)
+            if len(X_train) > 1:
+                # Calculer la pente et l'ordonnée à l'origine
+                mean_x = np.mean(X_train)
+                mean_y = np.mean(y_train)
+                numerator = np.sum((X_train.flatten() - mean_x) * (y_train - mean_y))
+                denominator = np.sum((X_train.flatten() - mean_x) ** 2)
+                slope = numerator / denominator if denominator != 0 else 0
+                intercept = mean_y - slope * mean_x
+                
+                # Calculer R² pour le train set
+                y_pred_train = slope * X_train.flatten() + intercept
+                ss_res = np.sum((y_train - y_pred_train) ** 2)
+                ss_tot = np.sum((y_train - np.mean(y_train)) ** 2)
+                r2_train = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+                
+                # Stocker le modèle
+                model = {
+                    'slope': slope,
+                    'intercept': intercept,
+                    'r_squared': r2_train
+                }
+                
+                # Prédire les valeurs futures
+                future_periods = np.array(range(len(X) + 1, len(X) + periods_ahead + 1)).reshape(-1, 1)
+                y_pred_future = model['slope'] * future_periods.flatten() + model['intercept']
+                
+                # Calculer l'intervalle de confiance (simplifié)
+                residuals = y_train - y_pred_train
+                mse = np.mean(residuals ** 2)
+                confidence_interval = 1.96 * np.sqrt(mse) # Intervalle de confiance à 95%
+                
+                # Prédire toute la série pour le graphique
+                X_full = np.array(range(1, len(X) + periods_ahead + 1)).reshape(-1, 1)
+                y_pred_full = model['slope'] * X_full.flatten() + model['intercept']
+                
+                # Créer le graphique avec Plotly
+                fig_ml = go.Figure()
+                
+                # Données historiques
+                fig_ml.add_trace(go.Scatter(
+                    x=list(range(1, len(historical_kpis) + 1)),
+                    y=historical_kpis,
+                    mode='markers',
+                    name='Données Historiques',
+                    marker=dict(size=8, color='#3b82f6')
+                ))
+                
+                # Ligne de régression (données historiques + prédiction)
+                fig_ml.add_trace(go.Scatter(
+                    x=X_full.flatten(),
+                    y=y_pred_full,
+                    mode='lines',
+                    name='Tendance (Régression)',
+                    line=dict(width=3, color='#10b981')
+                ))
+                
+                # Zone d'incertitude
+                fig_ml.add_trace(go.Scatter(
+                    x=np.concatenate([X_full.flatten(), X_full.flatten()[::-1]]),
+                    y=np.concatenate([y_pred_full + confidence_interval, (y_pred_full - confidence_interval)[::-1]]),
+                    fill='toself',
+                    fillcolor='rgba(16, 185, 129, 0.2)',
+                    line=dict(width=0),
+                    name='Intervalle 95%',
+                    hoverinfo='skip'
+                ))
+                
+                # Mettre à jour la mise en page
+                if selected_kpi_key == 'minutes_jouees':
+                    fig_ml.update_layout(
+                        title=f"Prédiction du KPI '{selected_kpi_name}'",
+                        xaxis_title="Numéro de Match",
+                        yaxis_title=selected_kpi_name,
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='#e2e8f0'),
+                        hovermode='x unified',
+                        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+                        yaxis=dict(range=[0, 95])
+                    )
+                else:
+                    fig_ml.update_layout(
+                        title=f"Prédiction du KPI '{selected_kpi_name}'",
+                        xaxis_title="Numéro de Match",
+                        yaxis_title=selected_kpi_name,
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='#e2e8f0'),
+                        hovermode='x unified',
+                        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+                    )
+                
+                st.plotly_chart(fig_ml, use_container_width=True)
+                
+                # Afficher les métriques du modèle
+                if len(X_test) > 0:
+                    y_pred_test = model['slope'] * X_test.flatten() + model['intercept']
+                    ss_res = np.sum((y_test - y_pred_test) ** 2)
+                    ss_tot = np.sum((y_test - np.mean(y_test)) ** 2)
+                    r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+                else:
+                    r2 = model['r_squared']
+                
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Pente", f"{model['slope']:.2f}")
+                col2.metric("R² (Train)", f"{model['r_squared']:.2f}")
+                col3.metric("R² (Test)", f"{r2:.2f}")
+                
+                st.markdown(f"**Prédiction pour les {periods_ahead} prochains matchs:**")
+                for i, pred in enumerate(y_pred_future):
+                    st.markdown(f"- Match {len(historical_kpis) + i + 1}: **{pred:.2f}** {selected_kpi_name}")
+
+# - FOOTER -
 st.markdown("---")
-st.caption("⚽ Clever Hub - Plateforme d'analyse footballistique - Données mises à jour en temps réel")
+st.markdown("⚽ Football Hub - Plateforme d'analyse footballistique - Données mises à jour en temps réel")
