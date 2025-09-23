@@ -13,10 +13,10 @@ import warnings
 import io
 import hashlib
 import requests
+# -------------------- NOUVEL IMPORT AJOUTÉ --------------------
 import mplsoccer
 warnings.filterwarnings('ignore')
 st.set_page_config(page_title="Football Hub - Analytics", page_icon="⚽", layout="wide")
-
 # -------------------- STYLE AVANCÉ --------------------
 st.markdown(
     """
@@ -134,14 +134,12 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
 # -------------------- HELPERS AVANCÉS --------------------
 def get_mtime(path: Path) -> float:
     try:
         return path.stat().st_mtime
     except FileNotFoundError:
         return 0.0
-
 def to_num(x) -> pd.Series:
     """Série numérique robuste — retourne TOUJOURS une pd.Series"""
     if isinstance(x, pd.Series):
@@ -153,14 +151,11 @@ def to_num(x) -> pd.Series:
     else:
         s = pd.Series([str(x)]).str.replace(",", ".", regex=False)
         return pd.to_numeric(s, errors="coerce").fillna(0)
-
 def df_has_cols(df: pd.DataFrame, cols: list) -> bool:
     return all(c in df.columns for c in cols)
-
 def norm_col(c: str) -> str:
     c = unicodedata.normalize("NFKD", str(c)).encode("ascii", "ignore").decode("ascii")
     return c.strip().lower().replace("  ", " ")
-
 def rename_like(df: pd.DataFrame, mapping: dict):
     if df.empty: return df
     norm_map = {col: norm_col(col) for col in df.columns}
@@ -170,12 +165,10 @@ def rename_like(df: pd.DataFrame, mapping: dict):
         if ncol in inv:
             new_names[col] = inv[ncol]
     return df.rename(columns=new_names)
-
 def calculate_performance_score(player_data):
     """Calcule un score de performance global basé sur plusieurs métriques"""
     if player_data.empty:
         return 0
-    
     weights = {
         'passing_efficiency': 0.25,
         'duel_success': 0.20,
@@ -183,20 +176,17 @@ def calculate_performance_score(player_data):
         'defensive_contribution': 0.20,
         'ball_retention': 0.10
     }
-    
     passes_tent_col = player_data.get("Passe tentées", pd.Series([0]))
     passes_comp_col = player_data.get("Passe complete", pd.Series([0]))
     passes_tent = to_num(passes_tent_col).sum()
     passes_comp = to_num(passes_comp_col).sum()
     passing_eff = (passes_comp / passes_tent * 100) if passes_tent > 0 else 0
-    
     duel_tot_col_name = "Duel tenté" if "Duel tenté" in player_data.columns else "Duel tente"
     duels_tent_col = player_data.get(duel_tot_col_name, pd.Series([0]))
     duels_gagnes_col = player_data.get("Duel gagne", pd.Series([0]))
     duels_tent = to_num(duels_tent_col).sum()
     duels_gagnes = to_num(duels_gagnes_col).sum()
     duel_eff = (duels_gagnes / duels_tent * 100) if duels_tent > 0 else 0
-    
     buts_col = player_data.get("Buts", pd.Series([0]))
     tirs_col = player_data.get("Tir", pd.Series([0]))
     xg_col = player_data.get("xG", pd.Series([0]))
@@ -204,17 +194,14 @@ def calculate_performance_score(player_data):
     tirs = to_num(tirs_col).sum()
     xg = to_num(xg_col).sum()
     attacking_score = (buts * 10) + (tirs * 2) + (xg * 5)
-    
     interceptions_col = player_data.get("Interception", pd.Series([0]))
     recoveries_col = player_data.get("Recuperation du ballon", pd.Series([0]))
     interceptions = to_num(interceptions_col).sum()
     recoveries = to_num(recoveries_col).sum()
     defensive_score = (interceptions * 3) + (recoveries * 2)
-    
     touches_col = player_data.get("Ballon touché", pd.Series([0]))
     touches = to_num(touches_col).sum()
     ball_retention_score = touches / len(player_data) if len(player_data) > 0 else 0
-    
     final_score = (
         (passing_eff * weights['passing_efficiency']) +
         (duel_eff * weights['duel_success']) +
@@ -222,9 +209,7 @@ def calculate_performance_score(player_data):
         (min(defensive_score, 100) * weights['defensive_contribution']) +
         (min(ball_retention_score, 100) * weights['ball_retention'])
     )
-    
     return min(final_score, 100)
-
 def get_performance_badge(score):
     if score >= 80:
         return '<span class="performance-badge badge-excellent">Excellent</span>'
@@ -234,7 +219,6 @@ def get_performance_badge(score):
         return '<span class="performance-badge badge-average">Moyen</span>'
     else:
         return '<span class="performance-badge badge-poor">À améliorer</span>'
-
 def create_radar_chart(data, categories, title="Performance Radar"):
     fig = go.Figure()
     fig.add_trace(go.Scatterpolar(
@@ -267,7 +251,6 @@ def create_radar_chart(data, categories, title="Performance Radar"):
         font=dict(color='#e2e8f0')
     )
     return fig
-
 def predict_performance_trend_manual(x, y, periods_ahead=5):
     if len(x) < 2:
         return None
@@ -291,7 +274,6 @@ def predict_performance_trend_manual(x, y, periods_ahead=5):
         'future_matches': future_x,
         'r_squared': r_squared
     }
-
 # -------------------- BENCHMARKS PAR POSTE DÉTAIL --------------------
 BENCHMARKS_PAR_POSTE = {
     "Attaquant central": {
@@ -352,66 +334,7 @@ BENCHMARKS_PAR_POSTE = {
     }
 }
 
-def calculate_kpis(data, total_min, total_matches, player_id=None, df_players=None):
-    kpis = {}
-    passes_tent_col = data.get("Passe tentées", pd.Series([0]))
-    passes_comp_col = data.get("Passe complete", pd.Series([0]))
-    passes_tent = to_num(passes_tent_col).sum()
-    passes_comp = to_num(passes_comp_col).sum()
-    kpis['pass_accuracy'] = (passes_comp / passes_tent * 100) if passes_tent > 0 else 0
-    
-    prog_passes_col = data.get("Passe progressive", pd.Series([0])) if "Passe progressive" in data.columns else pd.Series([0])
-    prog_passes = to_num(prog_passes_col).sum()
-    kpis['prog_passes_per_90'] = (prog_passes / total_min * 90) if total_min > 0 else 0
-    
-    key_passes_col = data.get("Passe decisive", pd.Series([0])) if "Passe decisive" in data.columns else pd.Series([0])
-    key_passes = to_num(key_passes_col).sum()
-    kpis['key_passes_per_match'] = key_passes / total_matches if total_matches > 0 else 0
-    
-    tirs_col = data.get("Tir", pd.Series([0]))
-    tirs_cadres_col = data.get("Tir cadre", pd.Series([0]))
-    tirs = to_num(tirs_col).sum()
-    tirs_cadres = to_num(tirs_cadres_col).sum()
-    kpis['shot_accuracy'] = (tirs_cadres / tirs * 100) if tirs > 0 else 0
-    
-    xg_col = data.get("xG", pd.Series([0]))
-    xg = to_num(xg_col).sum()
-    kpis['xg_per_90'] = (xg / total_min * 90) if total_min > 0 else 0
-    
-    buts_col = data.get("Buts", pd.Series([0]))
-    buts = to_num(buts_col).sum()
-    kpis['goals_per_xg'] = buts / xg if xg > 0 else 0
-    
-    duel_tot_col_name = "Duel tenté" if "Duel tenté" in data.columns else "Duel tente"
-    duels_tent_col = data.get(duel_tot_col_name, pd.Series([0]))
-    duels_gagnes_col = data.get("Duel gagne", pd.Series([0]))
-    duels_tent = to_num(duels_tent_col).sum()
-    duels_gagnes = to_num(duels_gagnes_col).sum()
-    kpis['duel_win_rate'] = (duels_gagnes / duels_tent * 100) if duels_tent > 0 else 0
-    
-    interceptions_col = data.get("Interception", pd.Series([0]))
-    interceptions = to_num(interceptions_col).sum()
-    kpis['interceptions_per_90'] = (interceptions / total_min * 90) if total_min > 0 else 0
-    
-    recoveries_col = data.get("Recuperation du ballon", pd.Series([0]))
-    recoveries = to_num(recoveries_col).sum()
-    kpis['recoveries_per_90'] = (recoveries / total_min * 90) if total_min > 0 else 0
-    
-    # Récupérer le poste détaillé du joueur pour appliquer les bons benchmarks
-    if player_id is not None and df_players is not None and not df_players.empty:
-        player_row = df_players[df_players["PlayerID_norm"] == str(player_id)]
-        if not player_row.empty:
-            poste_detail = player_row.iloc[0].get('Poste Détail', 'Défaut')
-            benchmarks = BENCHMARKS_PAR_POSTE.get(poste_detail, BENCHMARKS_PAR_POSTE['Défaut'])
-        else:
-            benchmarks = BENCHMARKS_PAR_POSTE['Défaut']
-    else:
-        benchmarks = BENCHMARKS_PAR_POSTE['Défaut']
-    
-    # Ajouter les benchmarks au dictionnaire retourné
-    kpis['benchmarks'] = benchmarks
-    return kpis
-# -------------------- MAPPING POSTE → COORDONNÉES TERRAIN --------------------
+# -------------------- MAPPING POSTE → COORDONNÉES TERRAIN AJOUTÉ --------------------
 POSTE_COORDONNEES = {
     "Gardien de but": (5, 5),
     "Défenseur axial": (20, 50),
@@ -427,9 +350,58 @@ POSTE_COORDONNEES = {
     # Valeurs par défaut si le poste n'est pas trouvé
     "Défaut": (50, 50),
 }
+
+def calculate_kpis(data, total_min, total_matches, player_id=None, df_players=None):
+    kpis = {}
+    passes_tent_col = data.get("Passe tentées", pd.Series([0]))
+    passes_comp_col = data.get("Passe complete", pd.Series([0]))
+    passes_tent = to_num(passes_tent_col).sum()
+    passes_comp = to_num(passes_comp_col).sum()
+    kpis['pass_accuracy'] = (passes_comp / passes_tent * 100) if passes_tent > 0 else 0
+    prog_passes_col = data.get("Passe progressive", pd.Series([0])) if "Passe progressive" in data.columns else pd.Series([0])
+    prog_passes = to_num(prog_passes_col).sum()
+    kpis['prog_passes_per_90'] = (prog_passes / total_min * 90) if total_min > 0 else 0
+    key_passes_col = data.get("Passe decisive", pd.Series([0])) if "Passe decisive" in data.columns else pd.Series([0])
+    key_passes = to_num(key_passes_col).sum()
+    kpis['key_passes_per_match'] = key_passes / total_matches if total_matches > 0 else 0
+    tirs_col = data.get("Tir", pd.Series([0]))
+    tirs_cadres_col = data.get("Tir cadre", pd.Series([0]))
+    tirs = to_num(tirs_col).sum()
+    tirs_cadres = to_num(tirs_cadres_col).sum()
+    kpis['shot_accuracy'] = (tirs_cadres / tirs * 100) if tirs > 0 else 0
+    xg_col = data.get("xG", pd.Series([0]))
+    xg = to_num(xg_col).sum()
+    kpis['xg_per_90'] = (xg / total_min * 90) if total_min > 0 else 0
+    buts_col = data.get("Buts", pd.Series([0]))
+    buts = to_num(buts_col).sum()
+    kpis['goals_per_xg'] = buts / xg if xg > 0 else 0
+    duel_tot_col_name = "Duel tenté" if "Duel tenté" in data.columns else "Duel tente"
+    duels_tent_col = data.get(duel_tot_col_name, pd.Series([0]))
+    duels_gagnes_col = data.get("Duel gagne", pd.Series([0]))
+    duels_tent = to_num(duels_tent_col).sum()
+    duels_gagnes = to_num(duels_gagnes_col).sum()
+    kpis['duel_win_rate'] = (duels_gagnes / duels_tent * 100) if duels_tent > 0 else 0
+    interceptions_col = data.get("Interception", pd.Series([0]))
+    interceptions = to_num(interceptions_col).sum()
+    kpis['interceptions_per_90'] = (interceptions / total_min * 90) if total_min > 0 else 0
+    recoveries_col = data.get("Recuperation du ballon", pd.Series([0]))
+    recoveries = to_num(recoveries_col).sum()
+    kpis['recoveries_per_90'] = (recoveries / total_min * 90) if total_min > 0 else 0
+    # Récupérer le poste détaillé du joueur pour appliquer les bons benchmarks
+    if player_id is not None and df_players is not None and not df_players.empty:
+        player_row = df_players[df_players["PlayerID_norm"] == str(player_id)]
+        if not player_row.empty:
+            poste_detail = player_row.iloc[0].get('Poste Détail', 'Défaut')
+            benchmarks = BENCHMARKS_PAR_POSTE.get(poste_detail, BENCHMARKS_PAR_POSTE['Défaut'])
+        else:
+            benchmarks = BENCHMARKS_PAR_POSTE['Défaut']
+    else:
+        benchmarks = BENCHMARKS_PAR_POSTE['Défaut']
+    # Ajouter les benchmarks au dictionnaire retourné
+    kpis['benchmarks'] = benchmarks
+    return kpis
 # ==================== GOOGLE SHEETS → XLSX (public) ====================
 FILE_ID = "1giSdEgXz3VytLq9Acn9rlQGbUhNAo2bI"
-
 def _download_gsheets_as_xlsx(file_id: str) -> tuple[bytes, str, int]:
     url = f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx"
     r = requests.get(url, allow_redirects=True, timeout=30)
@@ -442,18 +414,15 @@ def _download_gsheets_as_xlsx(file_id: str) -> tuple[bytes, str, int]:
     sig = hashlib.md5(content).hexdigest()
     size = len(content)
     return content, sig, size
-
 @st.cache_data(show_spinner=False)
 def _parse_excel_bytes(xlsx_bytes: bytes, sig: str) -> dict:
     xl = pd.ExcelFile(io.BytesIO(xlsx_bytes), engine="openpyxl")
     return {name: xl.parse(name).copy(deep=True) for name in xl.sheet_names}
-
 # --- UI: reload
 with st.sidebar:
     if st.button("🔄 Recharger depuis Drive", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
-
 # --- Téléchargement + parsing
 try:
     xlsx_bytes, FILE_SIG, FILE_SIZE = _download_gsheets_as_xlsx(FILE_ID)
@@ -461,16 +430,13 @@ try:
 except Exception as e:
     st.error(f"❌ Impossible de charger depuis Drive : {e}")
     st.stop()
-
 # === Déballage des feuilles ===
 df_players = data.get("Joueur", pd.DataFrame())
 df_match   = data.get("Match", pd.DataFrame())
 df_well    = data.get("Wellness", pd.DataFrame())
-
 for df in (df_players, df_match, df_well):
     if not df.empty and "PlayerID" in df.columns:
         df["PlayerID_norm"] = df["PlayerID"].astype(str).str.strip()
-
 mapping = {
     "minute jouee": "Minutes Jouées",
     "tir cadre": "Tir cadre",
@@ -492,12 +458,9 @@ mapping = {
     "ballon touche surface": "Ballon touché surface",
     "recuperation du ballon": "Recuperation du ballon",
 }
-
 df_match = rename_like(df_match, mapping)
-
 if not df_well.empty and "DATE" in df_well.columns:
     df_well["DATE"] = pd.to_datetime(df_well["DATE"], errors="coerce")
-
 # -------------------- SIDEBAR --------------------
 st.sidebar.markdown("### 🎯 Paramètres d'analyse")
 player_map = {}
@@ -508,33 +471,26 @@ if not df_players.empty and {"PlayerID_norm", "Prénom", "Nom"}.issubset(df_play
 elif not df_match.empty and "PlayerID_norm" in df_match.columns:
     for pid in sorted(df_match["PlayerID_norm"].dropna().unique()):
         player_map[str(pid)] = str(pid)
-
 sel_display = st.sidebar.selectbox("🏃 Sélection joueur", list(player_map.keys()) if player_map else [])
 player_id = player_map.get(sel_display) if player_map else None
-
 st.sidebar.markdown("### ⚙️ Options d'analyse")
 show_predictions = st.sidebar.checkbox("📈 Afficher les prédictions", value=True)
 compare_mode = st.sidebar.checkbox("🔄 Mode comparaison", value=False)
 advanced_metrics = st.sidebar.checkbox("📊 Métriques avancées", value=True)
-
 if compare_mode and len(player_map) > 1:
     available_players = [k for k in player_map.keys() if k != sel_display]
     compare_player = st.sidebar.selectbox("👥 Comparer avec", available_players)
     compare_player_id = player_map.get(compare_player)
 else:
     compare_player_id = None
-
 # -------------------- PAGES --------------------
 tabs = st.tabs(["🏠 Dashboard", "📊 Performance", "📈 Projections", "🩺 Wellness", "🔍 Analyse", "📄 Données"])
-
 # ======================= DASHBOARD =======================
 with tabs[0]:
     st.markdown('<div class="hero"><span class="pill">🎯 Dashboard de Performance Joueur</span></div>', unsafe_allow_html=True)
     st.write("")
-    
     if player_id is not None:
         col1, col2 = st.columns([1, 2], gap="large")
-        
         with col1:
             st.markdown("##### 👤 Profil Joueur")
             if not df_players.empty and "PlayerID_norm" in df_players.columns:
@@ -542,7 +498,6 @@ with tabs[0]:
                 if not p.empty:
                     p = p.iloc[0]
                     initials = (str(p.get("Prénom","")[:1]) + str(p.get("Nom","")[:1])).upper()
-                    
                     # Calculer les minutes totales pour ce joueur
                     total_minutes = 0
                     if not df_match.empty:
@@ -557,12 +512,10 @@ with tabs[0]:
                     else:
                         perf_score = 0
                         perf_badge = get_performance_badge(0)
-                    
                     try:
                         naissance = str(pd.to_datetime(p.get("date de naissance")).date())
                     except Exception:
                         naissance = str(p.get("date de naissance")) if pd.notna(p.get("date de naissance")) else ""
-                    
                     st.markdown(
                         f"""
                         <div class="glass">
@@ -605,7 +558,51 @@ with tabs[0]:
                         """,
                         unsafe_allow_html=True,
                     )
-        
+
+                    # --- AJOUT DU TERRAIN AVEC LA POSITION DU JOUEUR ---
+                    st.markdown("##### 📍 Position sur le Terrain")
+                    # Récupérer le poste détaillé du joueur
+                    poste_detail = p.get('Poste Détail', p.get('Poste', 'Défaut'))
+                    # Obtenir les coordonnées
+                    x_pos, y_pos = POSTE_COORDONNEES.get(poste_detail, POSTE_COORDONNEES['Défaut'])
+
+                    # Créer le terrain
+                    pitch = mplsoccer.Pitch(
+                        pitch_type='opta',
+                        pitch_color='#0b1220',
+                        line_color='#e2e8f0',
+                        linewidth=2,
+                        goal_type='box'
+                    )
+                    fig, ax = pitch.draw(figsize=(6, 4))
+
+                    # Placer un marqueur à la position du joueur
+                    pitch.scatter(
+                        x_pos, y_pos,
+                        ax=ax,
+                        s=500,  # Taille du point
+                        color='#3b82f6',  # Couleur primaire
+                        edgecolors='white',  # Bordure blanche
+                        linewidth=2,
+                        alpha=0.9,
+                        zorder=5  # Pour être au-dessus des lignes
+                    )
+
+                    # Ajouter un label avec le poste
+                    ax.text(
+                        x_pos, y_pos + 5,
+                        poste_detail,
+                        color='white',
+                        fontsize=10,
+                        ha='center',
+                        va='bottom',
+                        weight='bold',
+                        zorder=6
+                    )
+
+                    # Afficher le terrain dans Streamlit
+                    st.pyplot(fig, use_container_width=True)
+
         with col2:
             st.markdown("##### 📊 KPIs Saison")
             if not df_match.empty and "PlayerID_norm" in df_match.columns:
@@ -614,15 +611,12 @@ with tabs[0]:
                     total_minutes = to_num(dm.get("Minutes Jouées")).sum()
                     total_matches = len(dm)
                     kpis_season = calculate_kpis(dm, total_minutes, total_matches, player_id, df_players)
-                    
                     # Afficher les minutes jouées en haut de la section
                     st.markdown(f"##### ⏱️ Minutes Jouées: {int(total_minutes)} (Moyenne: {int(total_minutes/total_matches) if total_matches > 0 else 0}/match)")
-                    
                     # Barre de progression pour les minutes
                     max_minutes_season = 3420  # 38 matchs * 90 minutes
                     progress_pct = min(total_minutes / max_minutes_season * 100, 100) if max_minutes_season > 0 else 0
                     progress_color = "#10b981" if progress_pct > 70 else "#3b82f6" if progress_pct > 40 else "#f59e0b"
-                    
                     st.markdown(
                         f"""
                         <div class="progress-bar">
@@ -632,7 +626,6 @@ with tabs[0]:
                         """,
                         unsafe_allow_html=True
                     )
-                    
                     cols = st.columns(3)
                     with cols[0]:
                         color = "#10b981" if kpis_season['xg_per_90'] > 0.5 else "#f59e0b" if kpis_season['xg_per_90'] > 0.3 else "#ef4444"
@@ -658,7 +651,6 @@ with tabs[0]:
                             <div class="value" style="color: {color};">{kpis_season['duel_win_rate']:.1f}%</div>
                         </div>
                         """, unsafe_allow_html=True)
-                    
                     st.markdown("##### 🕸️ Radar de Performance Tactique")
                     radar_categories = [
                         'Précision Passes', 'Passes Prog./90', 'Passes Décisives',
@@ -678,7 +670,6 @@ with tabs[0]:
                     ]
                     radar_fig = create_radar_chart(radar_values, radar_categories, "Performance Tactique Complète")
                     st.plotly_chart(radar_fig, use_container_width=True)
-        
         st.markdown("##### 🎯 Synthèse Match Spécifique — Améliorée")
         if not df_match.empty:
             dm = df_match[df_match["PlayerID_norm"] == player_id].copy()
@@ -689,7 +680,6 @@ with tabs[0]:
                 match_df = pd.DataFrame([last_match])
                 total_min_scalar = to_num(last_match.get("Minutes Jouées", 0)).iloc[0]
                 kpis_match = calculate_kpis(match_df, total_min_scalar, 1, player_id, df_players)
-                
                 wellness_summary = {}
                 if not df_well.empty:
                     match_date = pd.to_datetime(last_match.get("DATE"), errors='coerce')
@@ -704,13 +694,11 @@ with tabs[0]:
                                 if metric in dw_match.columns:
                                     avg_val = dw_match[metric].mean()
                                     wellness_summary[metric] = avg_val
-                
                 st.markdown(f"""
                 <div class="match-synthesis">
                     <h3 style="margin:0 0 16px 0; color: #5eead4;">Match J{j_day} • {opponent}</h3>
                 </div>
                 """, unsafe_allow_html=True)
-                
                 synth_col1, synth_col2, synth_col3 = st.columns(3)
                 with synth_col1:
                     st.markdown("##### 📤 Distribution")
@@ -726,7 +714,6 @@ with tabs[0]:
                         <div class="value" style="color: {prog_color};">{kpis_match['prog_passes_per_90']:.1f}</div>
                     </div>
                     """, unsafe_allow_html=True)
-                
                 with synth_col2:
                     st.markdown("##### ⚽ Offense")
                     shot_color = "#10b981" if kpis_match['shot_accuracy'] > 40 else "#f59e0b" if kpis_match['shot_accuracy'] > 30 else "#ef4444"
@@ -746,7 +733,6 @@ with tabs[0]:
                         <div class="value" style="color: {minutes_color};">{int(total_min_scalar)}</div>
                     </div>
                     """, unsafe_allow_html=True)
-                
                 with synth_col3:
                     st.markdown("##### 🛡️ Défense & Wellness")
                     duel_color = "#10b981" if kpis_match['duel_win_rate'] > 55 else "#f59e0b" if kpis_match['duel_win_rate'] > 50 else "#ef4444"
@@ -756,7 +742,6 @@ with tabs[0]:
                         <div class="value" style="color: {duel_color};">{kpis_match['duel_win_rate']:.1f}%</div>
                     </div>
                     """, unsafe_allow_html=True)
-                    
                     if wellness_summary:
                         energy = wellness_summary.get("Energie générale", 0)
                         freshness = wellness_summary.get("Fraicheur musculaire", 0)
@@ -774,17 +759,14 @@ with tabs[0]:
                         """, unsafe_allow_html=True)
                     else:
                         st.info("Wellness non disponible")
-
 # ======================= PERFORMANCE =======================
 with tabs[1]:
     st.markdown('<div class="hero"><span class="pill">📊 Performance Tactique - Distribution, Offense, Défense</span></div>', unsafe_allow_html=True)
     st.write("")
-    
     if player_id is not None and not df_match.empty:
         dm = df_match[df_match["PlayerID_norm"] == player_id].copy()
         if not dm.empty:
             analysis_mode = st.radio("Mode d'analyse", ["📊 Vue saison complète", "🎯 Match spécifique"], horizontal=True, key="perf_mode")
-            
             if analysis_mode == "🎯 Match spécifique":
                 if "Journée" in dm.columns and "Adversaire" in dm.columns:
                     pairs = dm[["Journée","Adversaire"]].dropna().drop_duplicates().sort_values(["Journée","Adversaire"])
@@ -797,16 +779,13 @@ with tabs[1]:
                     match_data = dm.iloc[:1]
             else:
                 match_data = dm
-            
             if not match_data.empty:
                 total_minutes = to_num(match_data.get("Minutes Jouées", 0)).sum()
                 total_matches = len(match_data) if analysis_mode == "📊 Vue saison complète" else 1
                 kpis = calculate_kpis(match_data, total_minutes, total_matches, player_id, df_players)
-                
                 # Section Minutes Jouées en haut de la page Performance
                 st.markdown("#### ⏱️ Statistiques de Temps de Jeu")
                 minutes_col1, minutes_col2, minutes_col3 = st.columns(3)
-                
                 with minutes_col1:
                     st.markdown(f"""
                     <div class="metric-card">
@@ -814,7 +793,6 @@ with tabs[1]:
                         <div class="value" style="color: #3b82f6;">{int(total_minutes)}</div>
                     </div>
                     """, unsafe_allow_html=True)
-                
                 with minutes_col2:
                     avg_minutes = total_minutes / total_matches if total_matches > 0 else 0
                     color = "#10b981" if avg_minutes >= 70 else "#f59e0b" if avg_minutes >= 45 else "#ef4444"
@@ -824,7 +802,6 @@ with tabs[1]:
                         <div class="value" style="color: {color};">{int(avg_minutes)}</div>
                     </div>
                     """, unsafe_allow_html=True)
-                
                 with minutes_col3:
                     # Calculer le pourcentage de la saison
                     max_possible_minutes = total_matches * 90
@@ -836,11 +813,9 @@ with tabs[1]:
                         <div class="value" style="color: {color};">{pct_played:.1f}%</div>
                     </div>
                     """, unsafe_allow_html=True)
-                
                 # Barre de progression
                 st.markdown(f"##### 📈 Progression du Temps de Jeu")
                 progress_color = "#10b981" if pct_played > 70 else "#3b82f6" if pct_played > 40 else "#f59e0b"
-                
                 st.markdown(
                     f"""
                     <div class="progress-bar">
@@ -849,13 +824,11 @@ with tabs[1]:
                     """,
                     unsafe_allow_html=True
                 )
-                
                 # Graphique d'évolution des minutes par match
                 if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
                     st.markdown("##### 📊 Évolution des Minutes par Match")
                     match_numbers = list(range(1, len(match_data) + 1))
                     minutes_per_match = to_num(match_data.get("Minutes Jouées", 0)).tolist()
-                    
                     fig_minutes = go.Figure()
                     fig_minutes.add_trace(go.Scatter(
                         x=match_numbers,
@@ -865,7 +838,6 @@ with tabs[1]:
                         line=dict(color='#3b82f6', width=3),
                         marker=dict(size=8, color='#3b82f6')
                     ))
-                    
                     # Ligne moyenne
                     fig_minutes.add_hline(
                         y=avg_minutes,
@@ -874,7 +846,6 @@ with tabs[1]:
                         annotation_text=f"Moyenne: {int(avg_minutes)} min",
                         annotation_position="bottom right"
                     )
-                    
                     fig_minutes.update_layout(
                         title="Évolution des Minutes Jouées par Match",
                         xaxis_title="Numéro de Match",
@@ -884,12 +855,9 @@ with tabs[1]:
                         font=dict(color='#e2e8f0'),
                         yaxis=dict(range=[0, max(90, max(minutes_per_match) if len(minutes_per_match) > 0 else 90)])
                     )
-                    
                     st.plotly_chart(fig_minutes, use_container_width=True)
-                
                 st.markdown("---")
                 st.markdown("#### 🎯 KPIs de Performance - Synthèse Tactique")
-                
                 st.markdown("##### 📤 Distribution (Contrôle et Création)")
                 dist_cols = st.columns(3)
                 with dist_cols[0]:
@@ -919,7 +887,6 @@ with tabs[1]:
                         <div style="font-size: 12px; color: var(--muted);">/match</div>
                     </div>
                     """, unsafe_allow_html=True)
-                
                 st.markdown("##### ⚽ Offense (Création et Finition)")
                 off_cols = st.columns(3)
                 with off_cols[0]:
@@ -949,7 +916,6 @@ with tabs[1]:
                         <div style="font-size: 12px; color: var(--muted);">Buts/xG</div>
                     </div>
                     """, unsafe_allow_html=True)
-                
                 st.markdown("##### 🛡️ Défense (Récupération et Duel)")
                 def_cols = st.columns(3)
                 with def_cols[0]:
@@ -979,7 +945,6 @@ with tabs[1]:
                         <div style="font-size: 12px; color: var(--muted);">/90 min</div>
                     </div>
                     """, unsafe_allow_html=True)
-                
                 st.markdown("---")
                 st.markdown("#### 📊 Synthèse Visuelle des KPIs")
                 st.caption("Comparaison par rapport aux benchmarks spécifiques à votre poste")
@@ -1002,7 +967,6 @@ with tabs[1]:
                 # Utiliser les benchmarks dynamiques
                 benchmarks = list(kpis['benchmarks'].values())
                 colors = ['#3b82f6', '#3b82f6', '#3b82f6', '#10b981', '#10b981', '#10b981', '#ef4444', '#ef4444', '#ef4444']
-                
                 fig_synthesis = go.Figure()
                 fig_synthesis.add_trace(go.Bar(
                     y=kpi_names,
@@ -1013,13 +977,11 @@ with tabs[1]:
                     text=[f"{v:.1f}" for v in kpi_values],
                     textposition='auto',
                 ))
-                
                 for i, benchmark in enumerate(benchmarks):
                     fig_synthesis.add_shape(
                         type="line", line=dict(color="rgba(255,255,255,0.5)", width=2, dash="dot"),
                         y0=i-0.4, y1=i+0.4, x0=benchmark, x1=benchmark
                     )
-                
                 fig_synthesis.update_layout(
                     title="Performance par KPI vs Benchmark (Spécifique au Poste)",
                     xaxis_title="Valeur",
@@ -1031,21 +993,17 @@ with tabs[1]:
                     height=600
                 )
                 st.plotly_chart(fig_synthesis, use_container_width=True)
-
 # ======================= PROJECTIONS =======================
 with tabs[2]:
     st.markdown('<div class="hero"><span class="pill">📈 Projections par Régression Linéaire</span></div>', unsafe_allow_html=True)
     st.write("")
-    
     if player_id is not None and not df_match.empty and show_predictions:
         dm = df_match[df_match["PlayerID_norm"] == player_id].copy()
         if not dm.empty and len(dm) >= 5:
             st.markdown("#### 🔮 Prédictions de KPIs par Régression Linéaire")
             st.info("💡 Les prédictions sont basées sur un modèle de régression linéaire manuelle (sans sklearn).")
-            
             dm_ml = dm.reset_index(drop=True)
             dm_ml['match_number'] = range(1, len(dm_ml) + 1)
-            
             # Ajouter les minutes jouées comme option de prédiction
             kpi_options = {
                 'Précision Passes': 'pass_accuracy',
@@ -1055,17 +1013,14 @@ with tabs[2]:
                 'Interceptions (/90)': 'interceptions_per_90',
                 'Minutes Jouées': 'minutes_jouees'
             }
-            
             selected_kpi_name = st.selectbox("KPI à prédire", list(kpi_options.keys()), key="ml_kpi_select")
             selected_kpi_key = kpi_options[selected_kpi_name]
             periods_ahead = st.slider("Nombre de matchs à prédire", 1, 10, 5, key="ml_periods")
-            
             historical_kpis = []
             for i in range(len(dm_ml)):
                 match_slice = dm_ml.iloc[:i+1]
                 total_min = to_num(match_slice.get("Minutes Jouées", 0)).sum()
                 total_matches = len(match_slice)
-                
                 if selected_kpi_key == 'minutes_jouees':
                     # Pour les minutes jouées, on prend simplement les minutes du match
                     current_match_minutes = to_num(match_slice.iloc[-1].get("Minutes Jouées", 0)).iloc[0]
@@ -1073,25 +1028,20 @@ with tabs[2]:
                 else:
                     kpi_dict = calculate_kpis(match_slice, total_min, total_matches, player_id, df_players)
                     historical_kpis.append(kpi_dict[selected_kpi_key])
-            
             dm_ml['target_kpi'] = historical_kpis
             X = dm_ml['match_number'].values
             y = dm_ml['target_kpi'].values
-            
             n = len(X)
             split_idx = int(0.8 * n)
             X_train, X_test = X[:split_idx], X[split_idx:]
             y_train, y_test = y[:split_idx], y[split_idx:]
-            
             model = predict_performance_trend_manual(X_train, y_train, periods_ahead)
-            
             if model:
                 all_match_numbers = np.arange(1, len(dm_ml) + periods_ahead + 1)
                 y_pred_full = model['slope'] * all_match_numbers + model['intercept']
                 y_pred_train = model['slope'] * X_train + model['intercept']
                 mae = np.mean(np.abs(y_train - y_pred_train))
                 confidence_interval = 1.96 * mae
-                
                 fig_ml = go.Figure()
                 fig_ml.add_trace(go.Scatter(
                     x=dm_ml['match_number'],
@@ -1126,7 +1076,6 @@ with tabs[2]:
                     name='Intervalle 95%',
                     hoverinfo='skip'
                 ))
-                
                 # Ajuster l'axe y pour les minutes jouées
                 if selected_kpi_key == 'minutes_jouees':
                     fig_ml.update_layout(
@@ -1151,9 +1100,7 @@ with tabs[2]:
                         hovermode='x unified',
                         legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
                     )
-                
                 st.plotly_chart(fig_ml, use_container_width=True)
-                
                 if len(X_test) > 0:
                     y_pred_test = model['slope'] * X_test + model['intercept']
                     ss_res = np.sum((y_test - y_pred_test) ** 2)
@@ -1161,12 +1108,10 @@ with tabs[2]:
                     r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
                 else:
                     r2 = model['r_squared']
-                
                 col1, col2, col3 = st.columns(3)
                 col1.metric("📈 Pente", f"{model['slope']:.3f}", "par match")
                 col2.metric("🎯 R² Score", f"{r2:.2f}", "Qualité du modèle")
                 col3.metric("📏 MAE", f"{mae:.2f}", "Erreur moyenne")
-                
                 if model['slope'] > 0.1:
                     trend_text = "📈 Tendance fortement positive - Continuez comme ça !"
                 elif model['slope'] > 0:
@@ -1175,20 +1120,16 @@ with tabs[2]:
                     trend_text = "➡️ Tendance stable - Cherchez à vous améliorer."
                 else:
                     trend_text = "📉 Tendance négative - Travaillez sur ce point."
-                
                 st.success(f"**Interprétation :** {trend_text}")
-
 # ======================= WELLNESS =======================
 with tabs[3]:
     st.markdown('<div class="hero"><span class="pill">🩺 Analyse Wellness & Corrélation Performance</span></div>', unsafe_allow_html=True)
     st.write("")
-    
     if player_id is not None and not df_well.empty:
         dw = df_well[df_well["PlayerID_norm"] == player_id].copy()
         if not dw.empty and "DATE" in dw.columns:
             dw = dw.sort_values("DATE").tail(60)
             wellness_metrics = [c for c in ["Energie générale", "Fraicheur musculaire", "Humeur", "Sommeil", "Intensité douleur"] if c in dw.columns]
-            
             if wellness_metrics:
                 st.markdown("#### 📈 Courbes de Tendance par Indicateur")
                 selected_metrics = st.multiselect(
@@ -1196,7 +1137,6 @@ with tabs[3]:
                     options=wellness_metrics,
                     default=wellness_metrics
                 )
-                
                 if selected_metrics:
                     for metric in selected_metrics:
                         fig_metric = go.Figure()
@@ -1228,7 +1168,6 @@ with tabs[3]:
                             legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
                         )
                         st.plotly_chart(fig_metric, use_container_width=True)
-                
                 st.markdown("---")
                 st.markdown("#### 🔄 Vue d'Ensemble — Tous les Indicateurs")
                 if selected_metrics:
@@ -1254,7 +1193,6 @@ with tabs[3]:
                         legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
                     )
                     st.plotly_chart(fig_combined, use_container_width=True)
-                
                 st.markdown("---")
                 st.markdown("#### 📊 Statistiques des 7 Derniers Jours")
                 recent_data = dw.tail(7)
@@ -1286,7 +1224,6 @@ with tabs[3]:
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
-                
                 st.markdown("#### 🔗 Corrélation Wellness ↔ Performance (Derniers 15 jours)")
                 if not df_match.empty:
                     dm_player = df_match[df_match["PlayerID_norm"] == player_id].copy()
@@ -1306,22 +1243,18 @@ with tabs[3]:
                                     total_min_scalar = to_num(match_row.get("Minutes Jouées", 0)).iloc[0]
                                     perf_kpis = calculate_kpis(match_df, total_min_scalar, 1, player_id, df_players)
                                     correlation_data.append({**avg_wellness, **perf_kpis})
-                        
                         if len(correlation_data) >= 3:
                             corr_df = pd.DataFrame(correlation_data)
                             perf_kpi_options = ['xg_per_90', 'duel_win_rate', 'pass_accuracy', 'minutes_jouees']
-                            
                             # Modifier l'affichage pour inclure les minutes jouées
                             def format_perf_kpi(x):
                                 if x == 'minutes_jouees':
                                     return 'Minutes Jouées'
                                 else:
                                     return x.replace('_', ' ').title()
-                            
                             selected_perf_kpi = st.selectbox("KPI de Performance", perf_kpi_options,
                                                            format_func=format_perf_kpi,
                                                            key="wellness_corr_kpi")
-                            
                             corr_results = []
                             for w_metric in selected_metrics:
                                 if w_metric in corr_df.columns:
@@ -1347,7 +1280,6 @@ with tabs[3]:
                                                     'Wellness': w_metric,
                                                     'Corrélation': corr_coef
                                                 })
-                            
                             if corr_results:
                                 corr_results_df = pd.DataFrame(corr_results)
                                 fig_corr_bar = px.bar(corr_results_df, x='Wellness', y='Corrélation',
@@ -1361,7 +1293,6 @@ with tabs[3]:
                                     font=dict(color='#e2e8f0')
                                 )
                                 st.plotly_chart(fig_corr_bar, use_container_width=True)
-                                
                                 st.markdown("##### 💡 Insights Actionnables")
                                 for _, row in corr_results_df.iterrows():
                                     if row['Corrélation'] > 0.5:
@@ -1370,64 +1301,51 @@ with tabs[3]:
                                         st.error(f"⚠️ {row['Wellness']} a un impact NÉGATIF fort sur {format_perf_kpi(selected_perf_kpi)} (r={row['Corrélation']:.2f})")
                                     elif abs(row['Corrélation']) < 0.3:
                                         st.info(f"ℹ️ {row['Wellness']} n'a pas d'impact significatif sur {format_perf_kpi(selected_perf_kpi)} (r={row['Corrélation']:.2f})")
-
 # ======================= ANALYSE COMPARATIVE =======================
 with tabs[4]:
     st.markdown('<div class="hero"><span class="pill">🔍 Analyse Comparative Avancée</span></div>', unsafe_allow_html=True)
     st.write("")
-    
     if compare_mode and player_id is not None and compare_player_id is not None:
         dm1 = df_match[df_match["PlayerID_norm"] == player_id].copy()
         dm2 = df_match[df_match["PlayerID_norm"] == compare_player_id].copy()
-        
         if not dm1.empty and not dm2.empty:
             player1_name = sel_display.split(" (#")[0]
             player2_name = compare_player.split(" (#")[0]
-            
             st.markdown(f"#### ⚖️ Comparaison: **{player1_name}** vs **{player2_name}**")
-            
             p1_matches = len(dm1)
             p1_minutes = int(to_num(dm1.get("Minutes Jouées", 0)).sum())
             p1_buts = int(to_num(dm1.get("Buts", 0)).sum())
             p1_xg = float(to_num(dm1.get("xG", 0)).sum())
             p1_passes = int(to_num(dm1.get("Passe complete", 0)).sum())
-            
             p2_matches = len(dm2)
             p2_minutes = int(to_num(dm2.get("Minutes Jouées", 0)).sum())
             p2_buts = int(to_num(dm2.get("Buts", 0)).sum())
             p2_xg = float(to_num(dm2.get("xG", 0)).sum())
             p2_passes = int(to_num(dm2.get("Passe complete", 0)).sum())
-            
             kpi_cols = st.columns(5)
             kpi_cols[0].metric("Matchs Joués", f"{p1_matches}", f"{p1_matches - p2_matches:+d} vs {player2_name[:10]}")
             kpi_cols[1].metric("Minutes", f"{p1_minutes}", f"{p1_minutes - p2_minutes:+d}")
             kpi_cols[2].metric("Buts", f"{p1_buts}", f"{p1_buts - p2_buts:+d}")
             kpi_cols[3].metric("xG", f"{p1_xg:.1f}", f"{p1_xg - p2_xg:+.1f}")
             kpi_cols[4].metric("Passes", f"{p1_passes}", f"{p1_passes - p2_passes:+d}")
-            
             st.markdown("##### 🕸️ Comparaison Radar")
             col1, col2 = st.columns(2)
-            
             def calc_radar_metrics(dm):
                 matches = len(dm) if len(dm) > 0 else 1
                 passes_tent = to_num(dm.get("Passe tentées", 0)).sum()
                 passes_comp = to_num(dm.get("Passe complete", 0)).sum()
                 pass_eff = (passes_comp / passes_tent * 100) if passes_tent > 0 else 0
-                
                 duel_tot_col = "Duel tenté" if "Duel tenté" in dm.columns else "Duel tente"
                 duels_tent = to_num(dm.get(duel_tot_col, 0)).sum()
                 duels_gagnes = to_num(dm.get("Duel gagne", 0)).sum()
                 duel_eff = (duels_gagnes / duels_tent * 100) if duels_tent > 0 else 0
-                
                 tirs = to_num(dm.get("Tir", 0)).sum()
                 tirs_cadres = to_num(dm.get("Tir cadre", 0)).sum()
                 tir_eff = (tirs_cadres / tirs * 100) if tirs > 0 else 0
-                
                 xg_per_match = to_num(dm.get("xG", 0)).sum() / matches
                 buts_per_match = to_num(dm.get("Buts", 0)).sum() / matches
                 minutes_per_match = to_num(dm.get("Minutes Jouées", 0)).sum() / matches
                 playtime_pct = min(minutes_per_match / 90 * 100, 100)
-                
                 return [
                     min(pass_eff, 100),
                     min(duel_eff, 100),
@@ -1436,19 +1354,15 @@ with tabs[4]:
                     min(buts_per_match * 50, 100),
                     playtime_pct
                 ]
-            
             radar_categories = ['Passes', 'Duels', 'Tirs', 'xG/Match', 'Buts/Match', 'Temps de Jeu']
-            
             with col1:
                 p1_radar = calc_radar_metrics(dm1)
                 fig1 = create_radar_chart(p1_radar, radar_categories, f"Performance - {player1_name}")
                 st.plotly_chart(fig1, use_container_width=True)
-            
             with col2:
                 p2_radar = calc_radar_metrics(dm2)
                 fig2 = create_radar_chart(p2_radar, radar_categories, f"Performance - {player2_name}")
                 st.plotly_chart(fig2, use_container_width=True)
-            
             st.markdown("##### ⚡ Comparaison Directe")
             comparison_data = []
             for i, category in enumerate(radar_categories):
@@ -1457,7 +1371,6 @@ with tabs[4]:
                     player1_name: p1_radar[i],
                     player2_name: p2_radar[i]
                 })
-            
             comp_df = pd.DataFrame(comparison_data)
             fig_comp = px.bar(comp_df, x='Catégorie', y=[player1_name, player2_name],
                              title="Comparaison des Performances", barmode='group')
@@ -1467,14 +1380,12 @@ with tabs[4]:
                 font=dict(color='#e2e8f0')
             )
             st.plotly_chart(fig_comp, use_container_width=True)
-            
             st.markdown("##### 📈 Évolution Comparée")
             metric_to_compare = st.selectbox(
                 "Métrique à comparer dans le temps",
                 ["Buts", "xG", "Passe complete", "Tir", "Duel gagne", "Minutes Jouées"],
                 key="compare_metric"
             )
-            
             if metric_to_compare in dm1.columns and metric_to_compare in dm2.columns:
                 fig_evolution = go.Figure()
                 p1_values = to_num(dm1[metric_to_compare]).cumsum()
@@ -1493,7 +1404,6 @@ with tabs[4]:
                     name=player2_name,
                     line=dict(width=3)
                 ))
-                
                 fig_evolution.update_layout(
                     title=f"Évolution Cumulative - {metric_to_compare}",
                     xaxis_title="Numéro de Match",
@@ -1503,7 +1413,6 @@ with tabs[4]:
                     font=dict(color='#e2e8f0')
                 )
                 st.plotly_chart(fig_evolution, use_container_width=True)
-
 # ======================= DONNÉES =======================
 with tabs[5]:
     st.markdown("#### 📄 Données Brutes et Export")
@@ -1511,12 +1420,10 @@ with tabs[5]:
     col1.metric("📊 Joueurs", df_players.shape[0])
     col2.metric("⚽ Matchs", df_match.shape[0])
     col3.metric("🩺 Wellness", df_well.shape[0])
-    
     data_view = st.selectbox(
         "Vue des données",
         ["Joueurs", "Matchs", "Wellness", "Statistiques agrégées"]
     )
-    
     if data_view == "Joueurs":
         st.markdown("**👥 Données Joueurs**")
         st.dataframe(df_players, use_container_width=True)
@@ -1557,7 +1464,6 @@ with tabs[5]:
                     stats['xG_par_Match'] = stats['xG'] / matches
                     stats['Minutes_par_Match'] = stats['Minutes_Total'] / matches
                     agg_stats.append(stats)
-            
             if agg_stats:
                 stats_df = pd.DataFrame(agg_stats)
                 st.dataframe(stats_df, use_container_width=True)
@@ -1568,7 +1474,6 @@ with tabs[5]:
                     file_name=f"football_stats_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                     mime="text/csv"
                 )
-
 # -------------------- FOOTER --------------------
 st.markdown("---")
 st.markdown(
