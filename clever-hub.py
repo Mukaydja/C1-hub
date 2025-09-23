@@ -16,6 +16,7 @@ import requests
 import matplotlib.pyplot as plt
 from mplsoccer import Pitch
 from PIL import Image
+from mplsoccer import Pitch
 
 warnings.filterwarnings('ignore')
 st.set_page_config(page_title="Football Hub - Analytics", page_icon="⚽", layout="wide")
