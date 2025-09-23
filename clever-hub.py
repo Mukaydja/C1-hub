@@ -345,7 +345,7 @@ POSTE_COORDONNEES = {
     "Milieu offensif": (70, 50),         # Dans l'entrejeu, proche de l'attaque
     "Milieu droit": (65, 75),            # A droite, dans le milieu offensif
     "Milieu gauche": (65, 25),           # A gauche, dans le milieu offensif
-    "Attaquant central": (93, 50),       # DANS la surface de réparation adverse (93 au lieu de 90)
+    "Attaquant central": (100, 50),       # DANS la surface de réparation adverse (93 au lieu de 90)
     "Attaquant de côté droit": (88, 70), # A droite, DANS la surface
     "Attaquant de côté gauche": (88, 30),# A gauche, DANS la surface
     # Valeurs par défaut si le poste n'est pas trouvé
