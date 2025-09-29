@@ -1609,22 +1609,21 @@ with tabs[4]:
 with tabs[5]:  # 👁️ Visualisation
     st.markdown('<div class="hero"><span class="pill">👁️ Visualisation des Événements sur le Terrain</span></div>', unsafe_allow_html=True)
     
-    # Charger l'onglet "Tracking" s'il existe
+    # Charger l'onglet "Tracking"
     if 'df_tracking' not in locals() or df_tracking.empty:
         st.warning("L'onglet 'Tracking' est vide ou manquant dans le fichier Google Sheets.")
     else:
-        # Vérifier les colonnes obligatoires
         required_cols = ['PlayerID_norm', 'Event', 'X', 'Y']
         missing = [c for c in required_cols if c not in df_tracking.columns]
         if missing:
             st.error(f"Colonnes manquantes dans 'Tracking' : {missing}")
         else:
-            # Conversion numérique des coordonnées
+            # Conversion numérique
             for col in ['X', 'Y', 'X2', 'Y2']:
                 if col in df_tracking.columns:
                     df_tracking[col] = pd.to_numeric(df_tracking[col], errors='coerce')
 
-            # Conversion coordonnées 0-100 → 0-120/80 si nécessaire
+            # Conversion coordonnées 0-100 → 0-120/80
             max_coord = df_tracking[['X', 'Y']].max().max()
             if pd.notna(max_coord) and 50 < max_coord <= 105:
                 st.info("Conversion des coordonnées de 0-100 → 0-120/0-80")
@@ -1635,7 +1634,7 @@ with tabs[5]:  # 👁️ Visualisation
                 if 'Y2' in df_tracking.columns:
                     df_tracking['Y2'] = df_tracking['Y2'] * 0.8
 
-            # Nettoyage des textes
+            # Nettoyage texte
             df_tracking['Event'] = (
                 df_tracking['Event']
                 .fillna('')
@@ -1743,189 +1742,98 @@ with tabs[5]:  # 👁️ Visualisation
                     zone_counts = tracking_filtered.groupby(['Event', 'Zone']).size().unstack(fill_value=0)
                     st.dataframe(zone_counts)
 
-                    # ==================== VISUALISATIONS PRINCIPALES CÔTE À CÔTE ====================
-                    st.markdown("---")
-                    st.subheader("📊 Visualisations Générales")
+                    # ==================== VUE GÉNÉRALE CÔTE À CÔTE ====================
+                    st.markdown("### 📊 Vue Générale (Tous Événements)")
+                    col_gen1, col_gen2 = st.columns(2)
 
-                    col_main1, col_main2 = st.columns(2)
-
-                    # --- Carte générale des événements ---
-                    with col_main1:
+                    # Carte générale
+                    with col_gen1:
                         st.markdown("##### Carte des Événements")
-                        pitch1 = Pitch(pitch_color='#0b1220', line_color='#e2e8f0', linewidth=1)
-                        fig1, ax1 = pitch1.draw(figsize=(10, 6))
+                        pitch = Pitch(pitch_color='#0b1220', line_color='#e2e8f0', linewidth=1)
+                        fig, ax = pitch.draw(figsize=(10, 6))
                         legend_elements = []
-
                         for event_type in selected_events_vis:
                             ev_data = tracking_filtered[tracking_filtered['Event'] == event_type]
                             color = event_colors.get(event_type, '#ffffff')
                             has_xy2 = ev_data[['X2', 'Y2']].notna().all(axis=1)
-
                             if has_xy2.any():
-                                pitch1.arrows(
+                                pitch.arrows(
                                     ev_data[has_xy2]['X'], ev_data[has_xy2]['Y'],
                                     ev_data[has_xy2]['X2'], ev_data[has_xy2]['Y2'],
-                                    color=color, width=2.0, headwidth=6, headlength=4, alpha=0.8, ax=ax1
+                                    color=color, width=2.0, alpha=0.8, ax=ax
                                 )
                             if (~has_xy2).any():
-                                pitch1.scatter(
+                                pitch.scatter(
                                     ev_data[~has_xy2]['X'], ev_data[~has_xy2]['Y'],
-                                    ax=ax1, fc=color, ec='white', lw=0.5, s=80, alpha=0.8
+                                    ax=ax, fc=color, ec='white', lw=0.5, s=80, alpha=0.8
                                 )
                             legend_elements.append(Patch(facecolor=color, label=event_type))
-
                         if legend_elements:
-                            ax1.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1, 0.5))
-                        st.pyplot(fig1, use_container_width=True)
+                            ax.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1, 0.5))
+                        st.pyplot(fig, use_container_width=True)
 
-                    # --- Heatmap générale ---
-                    with col_main2:
+                    # Heatmap générale
+                    with col_gen2:
                         st.markdown("##### Heatmap Générale")
-                        pitch2 = Pitch(pitch_type='statsbomb', pitch_color='#0b1220', line_color='#e2e8f0')
-                        fig2, ax2 = pitch2.draw(figsize=(10, 6))
-                        bin_stat = pitch2.bin_statistic(tracking_filtered['X'], tracking_filtered['Y'], statistic='count', bins=(6, 5))
-                        pitch2.heatmap(bin_stat, ax=ax2, cmap='Reds', edgecolor='white', alpha=0.8)
-                        pitch2.label_heatmap(
-                            bin_stat, ax=ax2, str_format='{:.0f}',
+                        pitch = Pitch(pitch_type='statsbomb', pitch_color='#0b1220', line_color='#e2e8f0')
+                        fig, ax = pitch.draw(figsize=(10, 6))
+                        bin_stat = pitch.bin_statistic(tracking_filtered['X'], tracking_filtered['Y'], statistic='count', bins=(6, 5))
+                        pitch.heatmap(bin_stat, ax=ax, cmap='Reds', edgecolor='white', alpha=0.8)
+                        pitch.label_heatmap(
+                            bin_stat, ax=ax, str_format='{:.0f}',
                             fontsize=12, color='white', ha='center', va='center'
                         )
-                        st.pyplot(fig2, use_container_width=True)
+                        st.pyplot(fig, use_container_width=True)
 
-                    # ==================== CARTES COMBINÉES PAR TYPE D'ÉVÉNEMENT ====================
-                    st.markdown("---")
-                    st.subheader("🔍 Cartes par Type d'Événement")
+                    # ==================== VUES DÉTAILLÉES PAR TYPE D'ÉVÉNEMENT ====================
+                    st.markdown("### 🔍 Détail par Type d'Événement")
 
-                    show_heatmap_labels = st.checkbox("Afficher les pourcentages sur les heatmaps", value=True)
-                    hide_zero_labels = st.checkbox("Masquer les 0 %", value=True)
+                    for event_type in selected_events_vis:
+                        ev_data = tracking_filtered[tracking_filtered['Event'] == event_type]
+                        if ev_data.empty:
+                            continue
 
-                    if selected_events_vis:
-                        grouped_events = [selected_events_vis[i:i+3] for i in range(0, len(selected_events_vis), 3)]
-                        cmap_list = ['Reds', 'Blues', 'Greens', 'Purples', 'Oranges', 'Greys', 'YlGnBu', 'PuRd']
+                        st.markdown(f"#### {event_type}")
+                        col_ev1, col_ev2 = st.columns(2)
 
-                        for group in grouped_events:
-                            cols = st.columns(len(group))
-                            for idx, event_type in enumerate(group):
-                                with cols[idx]:
-                                    ev_data = tracking_filtered[tracking_filtered['Event'] == event_type]
-                                    if ev_data.empty:
-                                        st.info(f"Aucun événement pour **{event_type}**")
-                                        continue
+                        color = event_colors.get(event_type, '#333333')
+                        cmap_name = 'Blues' if event_type == 'Pass' else 'Reds' if event_type == 'Shot' else 'Greens'
 
-                                    color = event_colors.get(event_type, '#333333')
-                                    cmap_name = cmap_list[idx % len(cmap_list)]
+                        # Carte spécifique
+                        with col_ev1:
+                            st.markdown("##### Carte des Événements")
+                            pitch = Pitch(pitch_color='#0b1220', line_color='#e2e8f0', linewidth=1)
+                            fig, ax = pitch.draw(figsize=(8, 5))
+                            has_xy2 = ev_data[['X2', 'Y2']].notna().all(axis=1)
+                            if has_xy2.any():
+                                pitch.arrows(
+                                    ev_data[has_xy2]['X'], ev_data[has_xy2]['Y'],
+                                    ev_data[has_xy2]['X2'], ev_data[has_xy2]['Y2'],
+                                    color=color, width=2.5, alpha=0.9, ax=ax
+                                )
+                            if (~has_xy2).any():
+                                pitch.scatter(
+                                    ev_data[~has_xy2]['X'], ev_data[~has_xy2]['Y'],
+                                    ax=ax, fc=color, ec='white', lw=0.5, s=100, alpha=0.9
+                                )
+                            ax.set_title(f"{event_type} - Positions", color='white')
+                            st.pyplot(fig, use_container_width=True)
 
-                                    pitch = Pitch(pitch_color='#0b1220', line_color='#e2e8f0', linewidth=1)
-                                    fig, ax = pitch.draw(figsize=(6, 4))
+                        # Heatmap spécifique
+                        with col_ev2:
+                            st.markdown("##### Heatmap")
+                            pitch = Pitch(pitch_type='statsbomb', pitch_color='#0b1220', line_color='#e2e8f0')
+                            fig, ax = pitch.draw(figsize=(8, 5))
+                            bin_stat = pitch.bin_statistic(ev_data['X'], ev_data['Y'], statistic='count', bins=(6, 5))
+                            pitch.heatmap(bin_stat, ax=ax, cmap=cmap_name, edgecolor='white', alpha=0.8)
+                            pitch.label_heatmap(
+                                bin_stat, ax=ax, str_format='{:.0f}',
+                                fontsize=12, color='white', ha='center', va='center'
+                            )
+                            ax.set_title(f"{event_type} - Densité", color='white')
+                            st.pyplot(fig, use_container_width=True)
 
-                                    # Flèches / points
-                                    has_xy2 = ev_data[['X2', 'Y2']].notna().all(axis=1)
-                                    if has_xy2.any():
-                                        pitch.arrows(
-                                            ev_data[has_xy2]['X'], ev_data[has_xy2]['Y'],
-                                            ev_data[has_xy2]['X2'], ev_data[has_xy2]['Y2'],
-                                            color=color, width=2.0, headwidth=6, headlength=4, alpha=0.8, ax=ax
-                                        )
-                                    if (~has_xy2).any():
-                                        pitch.scatter(
-                                            ev_data[~has_xy2]['X'], ev_data[~has_xy2]['Y'],
-                                            ax=ax, fc=color, ec='white', lw=0.5, s=80, alpha=0.8
-                                        )
-
-                                    # Heatmap spécifique
-                                    bin_stat = pitch.bin_statistic(ev_data['X'], ev_data['Y'], statistic='count', bins=(6, 5), normalize=True)
-                                    pitch.heatmap(bin_stat, ax=ax, cmap=cmap_name, edgecolor='white', alpha=0.7)
-
-                                    # Labels optionnels
-                                    if show_heatmap_labels:
-                                        str_format = '{:.0%}'
-                                        if hide_zero_labels:
-                                            pitch.label_heatmap(
-                                                bin_stat, ax=ax, str_format=str_format,
-                                                fontsize=10, color='white', ha='center', va='center',
-                                                exclude_zeros=True
-                                            )
-                                        else:
-                                            pitch.label_heatmap(
-                                                bin_stat, ax=ax, str_format=str_format,
-                                                fontsize=10, color='white', ha='center', va='center'
-                                            )
-
-                                    ax.set_title(event_type, color='white', fontsize=12, weight='bold')
-                                    st.pyplot(fig, use_container_width=True)
-                    else:
-                        st.info("Aucun type d'événement sélectionné.")
-# ======================= DONNÉES =======================
-# ... (tabs[6] inchangé, anciennement tabs[5])
-with tabs[6]:
-    st.markdown("#### 📄 Données Brutes et Export")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("📊 Joueurs", df_players.shape[0])
-    col2.metric("⚽ Matchs", df_match.shape[0])
-    col3.metric("🩺 Wellness", df_well.shape[0])
-    if 'df_tracking' in locals() and not df_tracking.empty:
-        col4 = st.columns(4)[-1]
-        col4.metric("📍 Tracking", df_tracking.shape[0])
-    data_view = st.selectbox(
-        "Vue des données",
-        ["Joueurs", "Matchs", "Wellness", "Tracking", "Statistiques agrégées"]
-    )
-    if data_view == "Joueurs":
-        st.markdown("**👥 Données Joueurs**")
-        st.dataframe(df_players, use_container_width=True)
-    elif data_view == "Matchs":
-        st.markdown("**⚽ Données Matchs**")
-        if player_id:
-            dm_filtered = df_match[df_match["PlayerID_norm"] == player_id]
-            st.dataframe(dm_filtered, use_container_width=True)
-        else:
-            st.dataframe(df_match.head(50), use_container_width=True)
-    elif data_view == "Wellness":
-        st.markdown("**🩺 Données Wellness**")
-        if player_id:
-            dw_filtered = df_well[df_well["PlayerID_norm"] == player_id]
-            st.dataframe(dw_filtered, use_container_width=True)
-        else:
-            st.dataframe(df_well.head(50), use_container_width=True)
-    elif data_view == "Tracking":
-        st.markdown("**📍 Données Tracking**")
-        if player_id:
-            dt_filtered = df_tracking[df_tracking["PlayerID_norm"] == player_id]
-            st.dataframe(dt_filtered, use_container_width=True)
-        else:
-            st.dataframe(df_tracking.head(50), use_container_width=True)
-    elif data_view == "Statistiques agrégées":
-        st.markdown("**📈 Statistiques Agrégées par Joueur**")
-        if not df_match.empty and "PlayerID_norm" in df_match.columns:
-            agg_stats = []
-            for pid in df_match["PlayerID_norm"].unique():
-                dm_player = df_match[df_match["PlayerID_norm"] == pid]
-                if not dm_player.empty:
-                    stats = {
-                        'PlayerID': pid,
-                        'Matchs': len(dm_player),
-                        'Minutes_Total': int(to_num(dm_player.get("Minutes Jouées", 0)).sum()),
-                        'Buts': int(to_num(dm_player.get("Buts", 0)).sum()),
-                        'xG': float(to_num(dm_player.get("xG", 0)).sum()),
-                        'Tirs': int(to_num(dm_player.get("Tir", 0)).sum()),
-                        'Passes_Completes': int(to_num(dm_player.get("Passe complete", 0)).sum()),
-                        'Duels_Gagnes': int(to_num(dm_player.get("Duel gagne", 0)).sum()),
-                        'Score_Performance': calculate_performance_score(dm_player)
-                    }
-                    matches = stats['Matchs'] if stats['Matchs'] > 0 else 1
-                    stats['Buts_par_Match'] = stats['Buts'] / matches
-                    stats['xG_par_Match'] = stats['xG'] / matches
-                    stats['Minutes_par_Match'] = stats['Minutes_Total'] / matches
-                    agg_stats.append(stats)
-            if agg_stats:
-                stats_df = pd.DataFrame(agg_stats)
-                st.dataframe(stats_df, use_container_width=True)
-                csv = stats_df.to_csv(index=False)
-                st.download_button(
-                    label="📥 Télécharger les statistiques (CSV)",
-                    data=csv,
-                    file_name=f"football_stats_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                    mime="text/csv"
-                )
+                        st.markdown("---")
 
 # -------------------- FOOTER --------------------
 st.markdown("---")
