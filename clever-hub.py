@@ -1737,6 +1737,15 @@ with tabs[5]:  # 👁️ Visualisation
 
                     event_colors = get_event_colors(event_options, color_palette_name, base_colors)
 
+                    # === Affichage des légendes dans la sidebar ===
+                    with st.sidebar.expander("🎨 Légende des Événements", expanded=False):
+                        for event_type in selected_events_vis:
+                            color = event_colors.get(event_type, '#ffffff')
+                            st.markdown(f'<div style="display: flex; align-items: center; margin: 4px 0;">'
+                                        f'<div style="width: 16px; height: 16px; background-color: {color}; '
+                                        f'border: 1px solid #ccc; margin-right: 8px; border-radius: 2px;"></div>'
+                                        f'<span>{event_type}</span></div>', unsafe_allow_html=True)
+
                     # Tableau récapitulatif
                     st.subheader("Répartition des événements")
                     zone_counts = tracking_filtered.groupby(['Event', 'Zone']).size().unstack(fill_value=0)
@@ -1746,12 +1755,11 @@ with tabs[5]:  # 👁️ Visualisation
                     st.markdown("### 📊 Vue Générale (Tous Événements)")
                     col_gen1, col_gen2 = st.columns(2)
 
-                    # Carte générale
+                    # Carte générale (sans légende)
                     with col_gen1:
                         st.markdown("##### Carte des Événements")
                         pitch = Pitch(pitch_color='#0b1220', line_color='#e2e8f0', linewidth=1)
                         fig, ax = pitch.draw(figsize=(10, 6))
-                        legend_elements = []
                         for event_type in selected_events_vis:
                             ev_data = tracking_filtered[tracking_filtered['Event'] == event_type]
                             color = event_colors.get(event_type, '#ffffff')
@@ -1767,20 +1775,17 @@ with tabs[5]:  # 👁️ Visualisation
                                     ev_data[~has_xy2]['X'], ev_data[~has_xy2]['Y'],
                                     ax=ax, fc=color, ec='white', lw=0.5, s=80, alpha=0.8
                                 )
-                            legend_elements.append(Patch(facecolor=color, label=event_type))
-                        if legend_elements:
-                            ax.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1, 0.5))
                         st.pyplot(fig, use_container_width=True)
 
-                    # Heatmap générale
+                    # Heatmap générale en POURCENTAGE
                     with col_gen2:
-                        st.markdown("##### Heatmap Générale")
+                        st.markdown("##### Heatmap Générale (%)")
                         pitch = Pitch(pitch_type='statsbomb', pitch_color='#0b1220', line_color='#e2e8f0')
                         fig, ax = pitch.draw(figsize=(10, 6))
-                        bin_stat = pitch.bin_statistic(tracking_filtered['X'], tracking_filtered['Y'], statistic='count', bins=(6, 5))
+                        bin_stat = pitch.bin_statistic(tracking_filtered['X'], tracking_filtered['Y'], statistic='count', bins=(6, 5), normalize=True)
                         pitch.heatmap(bin_stat, ax=ax, cmap='Reds', edgecolor='white', alpha=0.8)
                         pitch.label_heatmap(
-                            bin_stat, ax=ax, str_format='{:.0f}',
+                            bin_stat, ax=ax, str_format='{:.0%}',
                             fontsize=12, color='white', ha='center', va='center'
                         )
                         st.pyplot(fig, use_container_width=True)
@@ -1799,7 +1804,7 @@ with tabs[5]:  # 👁️ Visualisation
                         color = event_colors.get(event_type, '#333333')
                         cmap_name = 'Blues' if event_type == 'Pass' else 'Reds' if event_type == 'Shot' else 'Greens'
 
-                        # Carte spécifique
+                        # Carte spécifique (sans légende)
                         with col_ev1:
                             st.markdown("##### Carte des Événements")
                             pitch = Pitch(pitch_color='#0b1220', line_color='#e2e8f0', linewidth=1)
@@ -1819,15 +1824,15 @@ with tabs[5]:  # 👁️ Visualisation
                             ax.set_title(f"{event_type} - Positions", color='white')
                             st.pyplot(fig, use_container_width=True)
 
-                        # Heatmap spécifique
+                        # Heatmap spécifique en POURCENTAGE
                         with col_ev2:
-                            st.markdown("##### Heatmap")
+                            st.markdown("##### Heatmap (%)")
                             pitch = Pitch(pitch_type='statsbomb', pitch_color='#0b1220', line_color='#e2e8f0')
                             fig, ax = pitch.draw(figsize=(8, 5))
-                            bin_stat = pitch.bin_statistic(ev_data['X'], ev_data['Y'], statistic='count', bins=(6, 5))
+                            bin_stat = pitch.bin_statistic(ev_data['X'], ev_data['Y'], statistic='count', bins=(6, 5), normalize=True)
                             pitch.heatmap(bin_stat, ax=ax, cmap=cmap_name, edgecolor='white', alpha=0.8)
                             pitch.label_heatmap(
-                                bin_stat, ax=ax, str_format='{:.0f}',
+                                bin_stat, ax=ax, str_format='{:.0%}',
                                 fontsize=12, color='white', ha='center', va='center'
                             )
                             ax.set_title(f"{event_type} - Densité", color='white')
