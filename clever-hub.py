@@ -890,19 +890,20 @@ with tabs[1]:
                 # ======================= NOUVELLES VISUALISATIONS : DISTRIBUTION DÉTAILLÉE & POSSESSION =======================
                 st.markdown("##### 📈 Évolution des Passes par Type")
                 if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
-                    # Assurez-vous que les colonnes nécessaires existent
+                    # Liste exacte des colonnes après mapping
                     required_pass_cols = [
-                        "Passe complete", "Passe tentées", "Passe courte tentée", "Passe courte complète",
-                        "Passe moyenne tentée", "Passe moyenne complète", "Passe longue tentée", "Passe longue complète",
+                        "Passe complete", "Passe tentées",
+                        "Passe courte tentée", "Passe courte complète",
+                        "Passe moyenne tentée", "Passe moyenne complète",
+                        "Passe longue tentée", "Passe longue complète",
                         "Distance passe(m)"
                     ]
                     available_pass_cols = [col for col in required_pass_cols if col in match_data.columns]
-                    
+
                     if available_pass_cols:
                         fig_passes = go.Figure()
                         match_numbers = list(range(1, len(match_data) + 1))
 
-                        # Ajouter les séries de passes
                         if "Passe complete" in match_data.columns:
                             fig_passes.add_trace(go.Scatter(
                                 x=match_numbers,
@@ -994,7 +995,7 @@ with tabs[1]:
                         )
                         st.plotly_chart(fig_passes, use_container_width=True)
 
-                    # Calcul et affichage des % si données disponibles
+                    # --- Taux de réussite ---
                     st.markdown("##### 📊 Taux de Réussite par Type de Passe")
                     pct_cols = st.columns(3)
                     with pct_cols[0]:
@@ -1050,16 +1051,20 @@ with tabs[1]:
                 st.markdown("##### 🏃‍♂️ Évolution de la Possession et du Toucher de Balle")
                 if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
                     possession_cols = [
-                        "Ballon touché", "Ballon touché haute", "Ballon touché médian", "Ballon touché basse",
-                        "Ballon touché surface", "Distance parcouru avec ballon (m)", "Distance parcouru progression(m)",
-                        "Reception du ballon"
+                        "Ballon touché",
+                        "Ballon touché haute",
+                        "Ballon touché médian",
+                        "Ballon touché basse",
+                        "Ballon touché surface",
+                        "Distance parcouru avec ballon (m)",
+                        "Distance parcouru progression(m)",
+                        "Recuperation du ballon"  # ← CORRIGÉ
                     ]
                     available_poss_cols = [col for col in possession_cols if col in match_data.columns]
-                    
+
                     if available_poss_cols:
                         fig_poss = go.Figure()
                         match_numbers = list(range(1, len(match_data) + 1))
-
                         color_cycle = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1', '#06b6d4']
 
                         for i, col in enumerate(available_poss_cols):
@@ -1182,7 +1187,6 @@ with tabs[1]:
                     kpis['interceptions_per_90'],
                     kpis['recoveries_per_90']
                 ]
-                # Utiliser les benchmarks dynamiques
                 benchmarks = list(kpis['benchmarks'].values())
                 colors = ['#3b82f6', '#3b82f6', '#3b82f6', '#10b981', '#10b981', '#10b981', '#ef4444', '#ef4444', '#ef4444']
                 fig_synthesis = go.Figure()
