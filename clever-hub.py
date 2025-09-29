@@ -13,6 +13,7 @@ import warnings
 import io
 import hashlib
 import requests
+from matplotlib.patches import Patch
 # -------------------- NOUVEL IMPORT AJOUTÉ --------------------
 import mplsoccer
 from mplsoccer import Pitch
