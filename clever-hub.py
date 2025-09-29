@@ -1605,35 +1605,45 @@ with tabs[4]:
                     font=dict(color='#e2e8f0')
                 )
                 st.plotly_chart(fig_evolution, use_container_width=True)
-# ======================= VISUALISATION TRACKING (NOUVEL ONGLET) =======================
+# ======================= VISUALISATION TRACKING =======================
 with tabs[5]:  # 👁️ Visualisation
     st.markdown('<div class="hero"><span class="pill">👁️ Visualisation des Événements sur le Terrain</span></div>', unsafe_allow_html=True)
-    if df_tracking.empty:
+    
+    # Charger l'onglet "Tracking" s'il existe
+    if 'df_tracking' not in locals() or df_tracking.empty:
         st.warning("L'onglet 'Tracking' est vide ou manquant dans le fichier Google Sheets.")
     else:
+        # Vérifier les colonnes obligatoires
         required_cols = ['PlayerID_norm', 'Event', 'X', 'Y']
         missing = [c for c in required_cols if c not in df_tracking.columns]
         if missing:
             st.error(f"Colonnes manquantes dans 'Tracking' : {missing}")
         else:
-            # Conversion numérique
+            # Conversion numérique des coordonnées
             for col in ['X', 'Y', 'X2', 'Y2']:
                 if col in df_tracking.columns:
                     df_tracking[col] = pd.to_numeric(df_tracking[col], errors='coerce')
 
-            # Conversion coordonnées si en 0–100
+            # Conversion coordonnées 0-100 → 0-120/80 si nécessaire
             max_coord = df_tracking[['X', 'Y']].max().max()
-            if pd.notna(max_coord) and max_coord <= 105 and max_coord > 50:
+            if pd.notna(max_coord) and 50 < max_coord <= 105:
                 st.info("Conversion des coordonnées de 0-100 → 0-120/0-80")
-                df_tracking['X'] *= 1.2
-                df_tracking['Y'] *= 0.8
+                df_tracking['X'] = df_tracking['X'] * 1.2
+                df_tracking['Y'] = df_tracking['Y'] * 0.8
                 if 'X2' in df_tracking.columns:
-                    df_tracking['X2'] *= 1.2
+                    df_tracking['X2'] = df_tracking['X2'] * 1.2
                 if 'Y2' in df_tracking.columns:
-                    df_tracking['Y2'] *= 0.8
+                    df_tracking['Y2'] = df_tracking['Y2'] * 0.8
 
-            # Nettoyage texte
-            df_tracking['Event'] = df_tracking['Event'].fillna('').astype(str).str.strip().str.lower().str.title()
+            # Nettoyage des textes
+            df_tracking['Event'] = (
+                df_tracking['Event']
+                .fillna('')
+                .astype(str)
+                .str.strip()
+                .str.lower()
+                .str.title()
+            )
 
             # Classification des zones (logique inversée)
             def classify_zone(x, y):
@@ -1663,8 +1673,16 @@ with tabs[5]:  # 👁️ Visualisation
                 event_options = sorted(tracking_filtered['Event'].dropna().unique())
                 zone_options = sorted(tracking_filtered['Zone'].dropna().unique())
 
-                selected_events_vis = st.sidebar.multiselect("Événements", event_options, default=event_options[:min(3, len(event_options))] if event_options else [])
-                selected_zones_vis = st.sidebar.multiselect("Zones", zone_options, default=zone_options)
+                selected_events_vis = st.sidebar.multiselect(
+                    "Événements", 
+                    event_options, 
+                    default=event_options[:min(3, len(event_options))] if event_options else []
+                )
+                selected_zones_vis = st.sidebar.multiselect(
+                    "Zones", 
+                    zone_options, 
+                    default=zone_options
+                )
 
                 # Filtre par journée si colonne existe
                 if 'Journée' in tracking_filtered.columns:
@@ -1673,7 +1691,7 @@ with tabs[5]:  # 👁️ Visualisation
                     if selected_match != "Toutes":
                         tracking_filtered = tracking_filtered[tracking_filtered['Journée'] == selected_match]
 
-                # Appliquer filtres
+                # Appliquer les filtres
                 tracking_filtered = tracking_filtered[
                     tracking_filtered['Event'].isin(selected_events_vis) &
                     tracking_filtered['Zone'].isin(selected_zones_vis)
@@ -1705,7 +1723,10 @@ with tabs[5]:  # 👁️ Visualisation
                     def get_event_colors(event_list, palette_name, base_colors_dict):
                         if palette_name == 'Par défaut':
                             cmap_for_others = cm.get_cmap('tab20', max(1, len(event_list)))
-                            generated_colors = {event: mcolors.to_hex(cmap_for_others(i)) for i, event in enumerate([e for e in event_list if e not in base_colors_dict])}
+                            generated_colors = {
+                                event: mcolors.to_hex(cmap_for_others(i)) 
+                                for i, event in enumerate([e for e in event_list if e not in base_colors_dict])
+                            }
                             return {**base_colors_dict, **generated_colors}
                         else:
                             try:
@@ -1717,7 +1738,7 @@ with tabs[5]:  # 👁️ Visualisation
 
                     event_colors = get_event_colors(event_options, color_palette_name, base_colors)
 
-                    # Tableau récap
+                    # Tableau récapitulatif
                     st.subheader("Répartition des événements")
                     zone_counts = tracking_filtered.groupby(['Event', 'Zone']).size().unstack(fill_value=0)
                     st.dataframe(zone_counts)
@@ -1764,19 +1785,20 @@ with tabs[5]:  # 👁️ Visualisation
                         fig2, ax2 = pitch2.draw(figsize=(10, 6))
                         bin_stat = pitch2.bin_statistic(tracking_filtered['X'], tracking_filtered['Y'], statistic='count', bins=(6, 5))
                         pitch2.heatmap(bin_stat, ax=ax2, cmap='Reds', edgecolor='white', alpha=0.8)
-                        pitch2.label_heatmap(bin_stat, ax=ax2, str_format='{:.0f}', fontsize=12, color='white', ha='center', va='center')
+                        pitch2.label_heatmap(
+                            bin_stat, ax=ax2, str_format='{:.0f}',
+                            fontsize=12, color='white', ha='center', va='center'
+                        )
                         st.pyplot(fig2, use_container_width=True)
 
                     # ==================== CARTES COMBINÉES PAR TYPE D'ÉVÉNEMENT ====================
                     st.markdown("---")
                     st.subheader("🔍 Cartes par Type d'Événement")
 
-                    # Options avancées pour les cartes individuelles
                     show_heatmap_labels = st.checkbox("Afficher les pourcentages sur les heatmaps", value=True)
                     hide_zero_labels = st.checkbox("Masquer les 0 %", value=True)
 
                     if selected_events_vis:
-                        # Grouper par 3 pour affichage en grille
                         grouped_events = [selected_events_vis[i:i+3] for i in range(0, len(selected_events_vis), 3)]
                         cmap_list = ['Reds', 'Blues', 'Greens', 'Purples', 'Oranges', 'Greys', 'YlGnBu', 'PuRd']
 
@@ -1813,25 +1835,25 @@ with tabs[5]:  # 👁️ Visualisation
                                     bin_stat = pitch.bin_statistic(ev_data['X'], ev_data['Y'], statistic='count', bins=(6, 5), normalize=True)
                                     pitch.heatmap(bin_stat, ax=ax, cmap=cmap_name, edgecolor='white', alpha=0.7)
 
-                                    # Labels
+                                    # Labels optionnels
                                     if show_heatmap_labels:
+                                        str_format = '{:.0%}'
                                         if hide_zero_labels:
                                             pitch.label_heatmap(
-                                                bin_stat, ax=ax, str_format='{:.0%}',
+                                                bin_stat, ax=ax, str_format=str_format,
                                                 fontsize=10, color='white', ha='center', va='center',
                                                 exclude_zeros=True
                                             )
                                         else:
                                             pitch.label_heatmap(
-                                                bin_stat, ax=ax, str_format='{:.0%}',
+                                                bin_stat, ax=ax, str_format=str_format,
                                                 fontsize=10, color='white', ha='center', va='center'
                                             )
 
                                     ax.set_title(event_type, color='white', fontsize=12, weight='bold')
                                     st.pyplot(fig, use_container_width=True)
                     else:
-                        st.info("Aucun type d'événement sélectionné."))
-
+                        st.info("Aucun type d'événement sélectionné.")
 # ======================= DONNÉES =======================
 # ... (tabs[6] inchangé, anciennement tabs[5])
 with tabs[6]:
