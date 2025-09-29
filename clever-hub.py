@@ -782,7 +782,7 @@ with tabs[1]:
                 total_minutes = to_num(match_data.get("Minutes Jouées", 0)).sum()
                 total_matches = len(match_data) if analysis_mode == "📊 Vue saison complète" else 1
                 kpis = calculate_kpis(match_data, total_minutes, total_matches, player_id, df_players)
-                # Section Minutes Jouées en haut de la page Performance
+                # Section Minutes Jouées
                 st.markdown("#### ⏱️ Statistiques de Temps de Jeu")
                 minutes_col1, minutes_col2, minutes_col3 = st.columns(3)
                 with minutes_col1:
@@ -802,7 +802,6 @@ with tabs[1]:
                     </div>
                     """, unsafe_allow_html=True)
                 with minutes_col3:
-                    # Calculer le pourcentage de la saison
                     max_possible_minutes = total_matches * 90
                     pct_played = (total_minutes / max_possible_minutes * 100) if max_possible_minutes > 0 else 0
                     color = "#10b981" if pct_played >= 80 else "#f59e0b" if pct_played >= 60 else "#ef4444"
@@ -812,7 +811,6 @@ with tabs[1]:
                         <div class="value" style="color: {color};">{pct_played:.1f}%</div>
                     </div>
                     """, unsafe_allow_html=True)
-                # Barre de progression
                 st.markdown(f"##### 📈 Progression du Temps de Jeu")
                 progress_color = "#10b981" if pct_played > 70 else "#3b82f6" if pct_played > 40 else "#f59e0b"
                 st.markdown(
@@ -823,7 +821,6 @@ with tabs[1]:
                     """,
                     unsafe_allow_html=True
                 )
-                # Graphique d'évolution des minutes par match
                 if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
                     st.markdown("##### 📊 Évolution des Minutes par Match")
                     match_numbers = list(range(1, len(match_data) + 1))
@@ -837,7 +834,6 @@ with tabs[1]:
                         line=dict(color='#3b82f6', width=3),
                         marker=dict(size=8, color='#3b82f6')
                     ))
-                    # Ligne moyenne
                     fig_minutes.add_hline(
                         y=avg_minutes,
                         line_dash="dash",
@@ -857,6 +853,8 @@ with tabs[1]:
                     st.plotly_chart(fig_minutes, use_container_width=True)
                 st.markdown("---")
                 st.markdown("#### 🎯 KPIs de Performance - Synthèse Tactique")
+
+                # ========== DISTRIBUTION ==========
                 st.markdown("##### 📤 Distribution (Contrôle et Création)")
                 dist_cols = st.columns(3)
                 with dist_cols[0]:
@@ -887,7 +885,7 @@ with tabs[1]:
                     </div>
                     """, unsafe_allow_html=True)
 
-                # ======================= VISUALISATIONS DISTRIBUTION DÉTAILLÉE =======================
+                # --- Visualisations Distribution ---
                 st.markdown("##### 📊 Répartition des Passes par Type (Cumul Saison)")
                 if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
                     pass_cols = {
@@ -895,11 +893,7 @@ with tabs[1]:
                         "Moyennes complètes": "Passe moyenne complète",
                         "Longues complètes": "Passe longue complète"
                     }
-                    available_passes = {}
-                    for label, col in pass_cols.items():
-                        if col in match_data.columns:
-                            available_passes[label] = to_num(match_data[col]).sum()
-                    
+                    available_passes = {label: to_num(match_data[col]).sum() for label, col in pass_cols.items() if col in match_data.columns}
                     if available_passes:
                         match_numbers = list(range(1, len(match_data) + 1))
                         fig_passes = go.Figure()
@@ -922,12 +916,10 @@ with tabs[1]:
                             paper_bgcolor='rgba(0,0,0,0)',
                             plot_bgcolor='rgba(0,0,0,0)',
                             font=dict(color='#e2e8f0'),
-                            hovermode='x unified',
-                            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+                            hovermode='x unified'
                         )
                         st.plotly_chart(fig_passes, use_container_width=True)
 
-                        # Pie chart
                         st.markdown("##### 🥧 Répartition Finale des Passes Complètes")
                         total_passes = sum(available_passes.values())
                         if total_passes > 0:
@@ -938,16 +930,11 @@ with tabs[1]:
                                 textinfo='percent+label',
                                 hole=0.4
                             )])
-                            fig_pie.update_layout(
-                                title="Répartition des Passes Complètes par Distance",
-                                paper_bgcolor='rgba(0,0,0,0)',
-                                font=dict(color='#e2e8f0')
-                            )
+                            fig_pie.update_layout(title="Répartition des Passes Complètes par Distance", paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#e2e8f0'))
                             st.plotly_chart(fig_pie, use_container_width=True)
                     else:
                         st.info("Données de passes par type non disponibles.")
 
-                    # Taux de réussite
                     st.markdown("##### 📊 Taux de Réussite par Type de Passe")
                     pct_cols = st.columns(3)
                     with pct_cols[0]:
@@ -998,61 +985,21 @@ with tabs[1]:
 
                 st.markdown("---")
 
-                # ======================= VISUALISATIONS POSSESSION =======================
+                # ========== POSSESSION ==========
                 st.markdown("##### 🎯 Zones de Toucher de Balle & Déplacement")
                 if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
-                    zone_cols = {
-                        "Haute": "Ballon touché haute",
-                        "Médiane": "Ballon touché médian",
-                        "Basse": "Ballon touché basse",
-                        "Surface": "Ballon touché surface"
-                    }
-                    zones = {}
-                    for zone, col in zone_cols.items():
-                        if col in match_data.columns:
-                            zones[zone] = to_num(match_data[col]).sum()
-                    
-                    dist_cols = {
-                        "Avec ballon": "Distance parcouru avec ballon (m)",
-                        "En progression": "Distance parcouru progression(m)"
-                    }
-                    distances = {}
-                    for label, col in dist_cols.items():
-                        if col in match_data.columns:
-                            distances[label] = to_num(match_data[col]).sum()
-                    
+                    zone_cols = {"Haute": "Ballon touché haute", "Médiane": "Ballon touché médian", "Basse": "Ballon touché basse", "Surface": "Ballon touché surface"}
+                    zones = {zone: to_num(match_data[col]).sum() for zone, col in zone_cols.items() if col in match_data.columns}
+                    dist_cols = {"Avec ballon": "Distance parcouru avec ballon (m)", "En progression": "Distance parcouru progression(m)"}
+                    distances = {label: to_num(match_data[col]).sum() for label, col in dist_cols.items() if col in match_data.columns}
                     if zones or distances:
-                        fig_zones = make_subplots(
-                            rows=1, cols=2,
-                            column_widths=[0.6, 0.4],
-                            specs=[[{"type": "bar"}, {"type": "bar"}]],
-                            subplot_titles=("Touches par Zone", "Distances avec Ballon")
-                        )
+                        fig_zones = make_subplots(rows=1, cols=2, column_widths=[0.6, 0.4], specs=[[{"type": "bar"}, {"type": "bar"}]], subplot_titles=("Touches par Zone", "Distances avec Ballon"))
                         if zones:
-                            fig_zones.add_trace(go.Bar(
-                                y=list(zones.keys()),
-                                x=list(zones.values()),
-                                orientation='h',
-                                marker_color=['#3b82f6', '#10b981', '#f59e0b', '#ef4444'][:len(zones)],
-                                name="Touches"
-                            ), row=1, col=1)
+                            fig_zones.add_trace(go.Bar(y=list(zones.keys()), x=list(zones.values()), orientation='h', marker_color=['#3b82f6', '#10b981', '#f59e0b', '#ef4444'][:len(zones)]), row=1, col=1)
                         if distances:
-                            fig_zones.add_trace(go.Bar(
-                                x=list(distances.keys()),
-                                y=list(distances.values()),
-                                marker_color=['#8b5cf6', '#ec4899'],
-                                name="Distance (m)"
-                            ), row=1, col=2)
-                        fig_zones.update_layout(
-                            title="Synthèse Possession : Zones & Déplacement",
-                            paper_bgcolor='rgba(0,0,0,0)',
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            font=dict(color='#e2e8f0'),
-                            showlegend=False,
-                            height=400
-                        )
+                            fig_zones.add_trace(go.Bar(x=list(distances.keys()), y=list(distances.values()), marker_color=['#8b5cf6', '#ec4899']), row=1, col=2)
+                        fig_zones.update_layout(title="Synthèse Possession : Zones & Déplacement", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#e2e8f0'), showlegend=False, height=400)
                         st.plotly_chart(fig_zones, use_container_width=True)
-
                         if "Recuperation du ballon" in match_data.columns:
                             total_recup = to_num(match_data["Recuperation du ballon"]).sum()
                             st.markdown(f"""
@@ -1068,7 +1015,7 @@ with tabs[1]:
 
                 st.markdown("---")
 
-                # ======================= OFFENSE DÉTAILLÉE =======================
+                # ========== OFFENSE ==========
                 st.markdown("##### ⚽ Offense (Création et Finition)")
                 off_cols = st.columns(3)
                 with off_cols[0]:
@@ -1099,7 +1046,7 @@ with tabs[1]:
                     </div>
                     """, unsafe_allow_html=True)
 
-                # --- Visualisation offensive détaillée ---
+                # --- Visualisation Offensive ---
                 st.markdown("##### 🎯 Performance Offensive Détaillée")
                 if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
                     match_numbers = list(range(1, len(match_data) + 1))
@@ -1107,18 +1054,15 @@ with tabs[1]:
                     tirs = to_num(match_data.get("Tir", 0))
                     tirs_cadres = to_num(match_data.get("Tir cadre", 0))
                     xg = to_num(match_data.get("xG", 0))
-                    
                     buts_cum = buts.cumsum()
                     tirs_cum = tirs.cumsum()
                     tirs_cadres_cum = tirs_cadres.cumsum()
                     xg_cum = xg.cumsum()
-                    
                     fig_offense = make_subplots(specs=[[{"secondary_y": True}]])
                     fig_offense.add_trace(go.Scatter(x=match_numbers, y=buts_cum, mode='lines+markers', name='Buts', line=dict(color='#ef4444', width=3)), secondary_y=False)
                     fig_offense.add_trace(go.Scatter(x=match_numbers, y=tirs_cum, mode='lines+markers', name='Tirs', line=dict(color='#f59e0b', width=2)), secondary_y=False)
                     fig_offense.add_trace(go.Scatter(x=match_numbers, y=tirs_cadres_cum, mode='lines+markers', name='Tirs Cadrés', line=dict(color='#10b981', width=2)), secondary_y=False)
                     fig_offense.add_trace(go.Scatter(x=match_numbers, y=xg_cum, mode='lines+markers', name='xG', line=dict(color='#8b5cf6', width=3, dash='dot')), secondary_y=True)
-                    
                     fig_offense.update_layout(
                         title="Cumul Offensif : Buts, Tirs, Tirs Cadrés & xG",
                         xaxis_title="Numéro de Match",
@@ -1130,8 +1074,6 @@ with tabs[1]:
                         hovermode='x unified'
                     )
                     st.plotly_chart(fig_offense, use_container_width=True)
-                    
-                    # KPI synthétique
                     total_buts = buts.sum()
                     total_xg = xg.sum()
                     ratio_buts_xg = total_buts / total_xg if total_xg > 0 else 0
@@ -1145,7 +1087,6 @@ with tabs[1]:
                     with eff_col4:
                         color = "#10b981" if ratio_buts_xg > 1.1 else "#f59e0b" if ratio_buts_xg >= 0.9 else "#ef4444"
                         st.markdown(f"""<div class="metric-card"><h3>Buts / xG</h3><div class="value" style="color: {color};">{ratio_buts_xg:.2f}</div></div>""", unsafe_allow_html=True)
-
                 elif analysis_mode == "🎯 Match spécifique" and not match_data.empty:
                     buts = to_num(match_data.iloc[0].get("Buts", 0)).iloc[0]
                     tirs = to_num(match_data.iloc[0].get("Tir", 0)).iloc[0]
@@ -1157,12 +1098,7 @@ with tabs[1]:
                     normalized = [min(v / m * 100, 100) for v, m in zip(values, max_vals)]
                     fig_radar_off = go.Figure()
                     fig_radar_off.add_trace(go.Scatterpolar(r=normalized, theta=categories, fill='toself', line=dict(color='#ef4444'), fillcolor='rgba(239, 68, 68, 0.2)'))
-                    fig_radar_off.update_layout(
-                        polar=dict(radialaxis=dict(visible=True, range=[0, 100]), angularaxis=dict()),
-                        title="Synthèse Offensive du Match",
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        font=dict(color='#e2e8f0')
-                    )
+                    fig_radar_off.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="Synthèse Offensive du Match", paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#e2e8f0'))
                     st.plotly_chart(fig_radar_off, use_container_width=True)
                     ratio_match = buts / xg_val if xg_val > 0 else 0
                     st.markdown(f"""
@@ -1176,7 +1112,7 @@ with tabs[1]:
 
                 st.markdown("---")
 
-                # ======================= DÉFENSE DÉTAILLÉE =======================
+                # ========== DÉFENSE ==========
                 st.markdown("##### 🛡️ Défense (Récupération et Duel)")
                 def_cols = st.columns(3)
                 with def_cols[0]:
@@ -1207,73 +1143,47 @@ with tabs[1]:
                     </div>
                     """, unsafe_allow_html=True)
 
-                # --- Visualisation défensive détaillée ---
+                # --- Visualisation Défensive ---
                 st.markdown("##### 🛡️ Analyse Détaillée des Duels et Actions Défensives")
                 if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
-                    # Données défensives
                     recup = to_num(match_data.get("Recuperation du ballon", 0)).sum()
                     inter = to_num(match_data.get("Interception", 0)).sum()
                     duels_tent = to_num(match_data.get("Duel tenté", 0)).sum()
                     duels_gagnes = to_num(match_data.get("Duel gagne", 0)).sum()
                     duels_aer_g = to_num(match_data.get("Duel aérien gagné", 0)).sum()
                     duels_aer_p = to_num(match_data.get("Duel aérien perdu", 0)).sum()
-                    
-                    # Graphique 1 : Actions défensives totales
-                    fig_def_actions = go.Figure(data=[
-                        go.Bar(
-                            x=["Récupérations", "Interceptions"],
-                            y=[recup, inter],
-                            marker_color=['#8b5cf6', '#ec4899']
-                        )
-                    ])
-                    fig_def_actions.update_layout(
-                        title="Actions Défensives Totales",
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        font=dict(color='#e2e8f0'),
-                        yaxis_title="Nombre"
-                    )
+
+                    # Actions défensives
+                    fig_def_actions = go.Figure(data=[go.Bar(x=["Récupérations", "Interceptions"], y=[recup, inter], marker_color=['#8b5cf6', '#ec4899'])])
+                    fig_def_actions.update_layout(title="Actions Défensives Totales", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#e2e8f0'), yaxis_title="Nombre")
                     st.plotly_chart(fig_def_actions, use_container_width=True)
 
-                    # Graphique 2 : Duels (global + aérien)
+                    # Taux de réussite en duel
                     if duels_tent > 0:
                         duel_win_pct = duels_gagnes / duels_tent * 100
                         duel_aer_total = duels_aer_g + duels_aer_p
                         duel_aer_pct = duels_aer_g / duel_aer_total * 100 if duel_aer_total > 0 else 0
 
-                        fig_duels = make_subplots(
-                            rows=1, cols=2,
-                            subplot_titles=("Duels Globaux", "Duels Aériens")
-                        )
-                        # Duels globaux
-                        fig_duels.add_trace(go.Indicator(
-                            mode="gauge+number",
-                            value=duel_win_pct,
-                            title={'text': "Taux de réussite"},
-                            gauge={'axis': {'range': [0, 100]},
-                                   'bar': {'color': "#10b981" if duel_win_pct > 55 else "#f59e0b" if duel_win_pct > 50 else "#ef4444"},
-                                   'steps': [{'range': [0, 50], 'color': 'rgba(239, 68, 68, 0.2)'},
-                                             {'range': [50, 60], 'color': 'rgba(245, 158, 11, 0.2)'},
-                                             {'range': [60, 100], 'color': 'rgba(16, 185, 129, 0.2)'}]}
-                        ), row=1, col=1)
-
-                        # Duels aériens
-                        fig_duels.add_trace(go.Indicator(
-                            mode="gauge+number",
-                            value=duel_aer_pct,
-                            title={'text': "Taux de réussite"},
-                            gauge={'axis': {'range': [0, 100]},
-                                   'bar': {'color': "#10b981" if duel_aer_pct > 55 else "#f59e0b" if duel_aer_pct > 50 else "#ef4444"},
-                                   'steps': [{'range': [0, 50], 'color': 'rgba(239, 68, 68, 0.2)'},
-                                             {'range': [50, 60], 'color': 'rgba(245, 158, 11, 0.2)'},
-                                             {'range': [60, 100], 'color': 'rgba(16, 185, 129, 0.2)'}]}
-                        ), row=1, col=2)
-
+                        fig_duels = go.Figure()
+                        fig_duels.add_trace(go.Bar(
+                            y=["Duels Globaux", "Duels Aériens"],
+                            x=[duel_win_pct, duel_aer_pct],
+                            orientation='h',
+                            marker_color=[
+                                "#10b981" if duel_win_pct > 55 else "#f59e0b" if duel_win_pct > 50 else "#ef4444",
+                                "#10b981" if duel_aer_pct > 55 else "#f59e0b" if duel_aer_pct > 50 else "#ef4444"
+                            ],
+                            text=[f"{duel_win_pct:.1f}%", f"{duel_aer_pct:.1f}%"],
+                            textposition='auto'
+                        ))
                         fig_duels.update_layout(
-                            title="Performance en Duel",
+                            title="Taux de Réussite en Duel",
+                            xaxis_title="Pourcentage de réussite (%)",
+                            xaxis=dict(range=[0, 100]),
                             paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)',
                             font=dict(color='#e2e8f0'),
-                            height=300
+                            height=250
                         )
                         st.plotly_chart(fig_duels, use_container_width=True)
 
@@ -1302,49 +1212,15 @@ with tabs[1]:
                 st.markdown("---")
                 st.markdown("#### 📊 Synthèse Visuelle des KPIs")
                 st.caption("Comparaison par rapport aux benchmarks spécifiques à votre poste")
-                kpi_names = [
-                    'Précision Passes', 'Passes Progressives', 'Passes Décisives',
-                    'Précision Tirs', 'xG Généré', 'Efficacité Finition',
-                    'Taux Duel Gagné', 'Interceptions', 'Récupérations'
-                ]
-                kpi_values = [
-                    kpis['pass_accuracy'],
-                    kpis['prog_passes_per_90'],
-                    kpis['key_passes_per_match'],
-                    kpis['shot_accuracy'],
-                    kpis['xg_per_90'],
-                    kpis['goals_per_xg'],
-                    kpis['duel_win_rate'],
-                    kpis['interceptions_per_90'],
-                    kpis['recoveries_per_90']
-                ]
+                kpi_names = ['Précision Passes', 'Passes Progressives', 'Passes Décisives', 'Précision Tirs', 'xG Généré', 'Efficacité Finition', 'Taux Duel Gagné', 'Interceptions', 'Récupérations']
+                kpi_values = [kpis['pass_accuracy'], kpis['prog_passes_per_90'], kpis['key_passes_per_match'], kpis['shot_accuracy'], kpis['xg_per_90'], kpis['goals_per_xg'], kpis['duel_win_rate'], kpis['interceptions_per_90'], kpis['recoveries_per_90']]
                 benchmarks = list(kpis['benchmarks'].values())
                 colors = ['#3b82f6', '#3b82f6', '#3b82f6', '#10b981', '#10b981', '#10b981', '#ef4444', '#ef4444', '#ef4444']
                 fig_synthesis = go.Figure()
-                fig_synthesis.add_trace(go.Bar(
-                    y=kpi_names,
-                    x=kpi_values,
-                    orientation='h',
-                    marker_color=colors,
-                    name='Performance',
-                    text=[f"{v:.1f}" for v in kpi_values],
-                    textposition='auto',
-                ))
+                fig_synthesis.add_trace(go.Bar(y=kpi_names, x=kpi_values, orientation='h', marker_color=colors, name='Performance', text=[f"{v:.1f}" for v in kpi_values], textposition='auto'))
                 for i, benchmark in enumerate(benchmarks):
-                    fig_synthesis.add_shape(
-                        type="line", line=dict(color="rgba(255,255,255,0.5)", width=2, dash="dot"),
-                        y0=i-0.4, y1=i+0.4, x0=benchmark, x1=benchmark
-                    )
-                fig_synthesis.update_layout(
-                    title="Performance par KPI vs Benchmark (Spécifique au Poste)",
-                    xaxis_title="Valeur",
-                    yaxis_title="KPI",
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color='#e2e8f0'),
-                    showlegend=False,
-                    height=600
-                )
+                    fig_synthesis.add_shape(type="line", line=dict(color="rgba(255,255,255,0.5)", width=2, dash="dot"), y0=i-0.4, y1=i+0.4, x0=benchmark, x1=benchmark)
+                fig_synthesis.update_layout(title="Performance par KPI vs Benchmark (Spécifique au Poste)", xaxis_title="Valeur", yaxis_title="KPI", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#e2e8f0'), showlegend=False, height=600)
                 st.plotly_chart(fig_synthesis, use_container_width=True)
 # ======================= PROJECTIONS =======================
 with tabs[2]:
