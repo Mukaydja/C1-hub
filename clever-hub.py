@@ -1605,7 +1605,6 @@ with tabs[4]:
                     font=dict(color='#e2e8f0')
                 )
                 st.plotly_chart(fig_evolution, use_container_width=True)
-
 # ======================= VISUALISATION TRACKING (NOUVEL ONGLET) =======================
 with tabs[5]:  # 👁️ Visualisation
     st.markdown('<div class="hero"><span class="pill">👁️ Visualisation des Événements sur le Terrain</span></div>', unsafe_allow_html=True)
@@ -1723,41 +1722,115 @@ with tabs[5]:  # 👁️ Visualisation
                     zone_counts = tracking_filtered.groupby(['Event', 'Zone']).size().unstack(fill_value=0)
                     st.dataframe(zone_counts)
 
-                    # Visualisation des événements
-                    st.subheader("Carte des événements")
-                    pitch = Pitch(pitch_color='#0b1220', line_color='#e2e8f0', linewidth=1)
-                    fig, ax = pitch.draw(figsize=(10, 6))
-                    legend_elements = []
+                    # ==================== VISUALISATIONS PRINCIPALES CÔTE À CÔTE ====================
+                    st.markdown("---")
+                    st.subheader("📊 Visualisations Générales")
 
-                    for event_type in selected_events_vis:
-                        ev_data = tracking_filtered[tracking_filtered['Event'] == event_type]
-                        color = event_colors.get(event_type, '#ffffff')
-                        has_xy2 = ev_data[['X2', 'Y2']].notna().all(axis=1)
+                    col_main1, col_main2 = st.columns(2)
 
-                        if has_xy2.any():
-                            pitch.arrows(
-                                ev_data[has_xy2]['X'], ev_data[has_xy2]['Y'],
-                                ev_data[has_xy2]['X2'], ev_data[has_xy2]['Y2'],
-                                color=color, width=2.0, headwidth=6, headlength=4, alpha=0.8, ax=ax
-                            )
-                        if (~has_xy2).any():
-                            pitch.scatter(
-                                ev_data[~has_xy2]['X'], ev_data[~has_xy2]['Y'],
-                                ax=ax, fc=color, ec='white', lw=0.5, s=80, alpha=0.8
-                            )
-                        legend_elements.append(Patch(facecolor=color, label=event_type))
+                    # --- Carte générale des événements ---
+                    with col_main1:
+                        st.markdown("##### Carte des Événements")
+                        pitch1 = Pitch(pitch_color='#0b1220', line_color='#e2e8f0', linewidth=1)
+                        fig1, ax1 = pitch1.draw(figsize=(10, 6))
+                        legend_elements = []
 
-                    ax.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1, 0.5))
-                    st.pyplot(fig, use_container_width=True)
+                        for event_type in selected_events_vis:
+                            ev_data = tracking_filtered[tracking_filtered['Event'] == event_type]
+                            color = event_colors.get(event_type, '#ffffff')
+                            has_xy2 = ev_data[['X2', 'Y2']].notna().all(axis=1)
 
-                    # Heatmap
-                    st.subheader("Heatmap des événements")
-                    pitch_hm = Pitch(pitch_type='statsbomb', pitch_color='#0b1220', line_color='#e2e8f0')
-                    fig2, ax2 = pitch_hm.draw(figsize=(10, 6))
-                    bin_stat = pitch_hm.bin_statistic(tracking_filtered['X'], tracking_filtered['Y'], statistic='count', bins=(6, 5))
-                    pitch_hm.heatmap(bin_stat, ax=ax2, cmap='Reds', edgecolor='white', alpha=0.8)
-                    pitch_hm.label_heatmap(bin_stat, ax=ax2, str_format='{:.0f}', fontsize=12, color='white', ha='center', va='center')
-                    st.pyplot(fig2, use_container_width=True)
+                            if has_xy2.any():
+                                pitch1.arrows(
+                                    ev_data[has_xy2]['X'], ev_data[has_xy2]['Y'],
+                                    ev_data[has_xy2]['X2'], ev_data[has_xy2]['Y2'],
+                                    color=color, width=2.0, headwidth=6, headlength=4, alpha=0.8, ax=ax1
+                                )
+                            if (~has_xy2).any():
+                                pitch1.scatter(
+                                    ev_data[~has_xy2]['X'], ev_data[~has_xy2]['Y'],
+                                    ax=ax1, fc=color, ec='white', lw=0.5, s=80, alpha=0.8
+                                )
+                            legend_elements.append(Patch(facecolor=color, label=event_type))
+
+                        if legend_elements:
+                            ax1.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1, 0.5))
+                        st.pyplot(fig1, use_container_width=True)
+
+                    # --- Heatmap générale ---
+                    with col_main2:
+                        st.markdown("##### Heatmap Générale")
+                        pitch2 = Pitch(pitch_type='statsbomb', pitch_color='#0b1220', line_color='#e2e8f0')
+                        fig2, ax2 = pitch2.draw(figsize=(10, 6))
+                        bin_stat = pitch2.bin_statistic(tracking_filtered['X'], tracking_filtered['Y'], statistic='count', bins=(6, 5))
+                        pitch2.heatmap(bin_stat, ax=ax2, cmap='Reds', edgecolor='white', alpha=0.8)
+                        pitch2.label_heatmap(bin_stat, ax=ax2, str_format='{:.0f}', fontsize=12, color='white', ha='center', va='center')
+                        st.pyplot(fig2, use_container_width=True)
+
+                    # ==================== CARTES COMBINÉES PAR TYPE D'ÉVÉNEMENT ====================
+                    st.markdown("---")
+                    st.subheader("🔍 Cartes par Type d'Événement")
+
+                    # Options avancées pour les cartes individuelles
+                    show_heatmap_labels = st.checkbox("Afficher les pourcentages sur les heatmaps", value=True)
+                    hide_zero_labels = st.checkbox("Masquer les 0 %", value=True)
+
+                    if selected_events_vis:
+                        # Grouper par 3 pour affichage en grille
+                        grouped_events = [selected_events_vis[i:i+3] for i in range(0, len(selected_events_vis), 3)]
+                        cmap_list = ['Reds', 'Blues', 'Greens', 'Purples', 'Oranges', 'Greys', 'YlGnBu', 'PuRd']
+
+                        for group in grouped_events:
+                            cols = st.columns(len(group))
+                            for idx, event_type in enumerate(group):
+                                with cols[idx]:
+                                    ev_data = tracking_filtered[tracking_filtered['Event'] == event_type]
+                                    if ev_data.empty:
+                                        st.info(f"Aucun événement pour **{event_type}**")
+                                        continue
+
+                                    color = event_colors.get(event_type, '#333333')
+                                    cmap_name = cmap_list[idx % len(cmap_list)]
+
+                                    pitch = Pitch(pitch_color='#0b1220', line_color='#e2e8f0', linewidth=1)
+                                    fig, ax = pitch.draw(figsize=(6, 4))
+
+                                    # Flèches / points
+                                    has_xy2 = ev_data[['X2', 'Y2']].notna().all(axis=1)
+                                    if has_xy2.any():
+                                        pitch.arrows(
+                                            ev_data[has_xy2]['X'], ev_data[has_xy2]['Y'],
+                                            ev_data[has_xy2]['X2'], ev_data[has_xy2]['Y2'],
+                                            color=color, width=2.0, headwidth=6, headlength=4, alpha=0.8, ax=ax
+                                        )
+                                    if (~has_xy2).any():
+                                        pitch.scatter(
+                                            ev_data[~has_xy2]['X'], ev_data[~has_xy2]['Y'],
+                                            ax=ax, fc=color, ec='white', lw=0.5, s=80, alpha=0.8
+                                        )
+
+                                    # Heatmap spécifique
+                                    bin_stat = pitch.bin_statistic(ev_data['X'], ev_data['Y'], statistic='count', bins=(6, 5), normalize=True)
+                                    pitch.heatmap(bin_stat, ax=ax, cmap=cmap_name, edgecolor='white', alpha=0.7)
+
+                                    # Labels
+                                    if show_heatmap_labels:
+                                        if hide_zero_labels:
+                                            pitch.label_heatmap(
+                                                bin_stat, ax=ax, str_format='{:.0%}',
+                                                fontsize=10, color='white', ha='center', va='center',
+                                                exclude_zeros=True
+                                            )
+                                        else:
+                                            pitch.label_heatmap(
+                                                bin_stat, ax=ax, str_format='{:.0%}',
+                                                fontsize=10, color='white', ha='center', va='center'
+                                            )
+
+                                    ax.set_title(event_type, color='white', fontsize=12, weight='bold')
+                                    st.pyplot(fig, use_container_width=True)
+                    else:
+                        st.info("Aucun type d'événement sélectionné."))
 
 # ======================= DONNÉES =======================
 # ... (tabs[6] inchangé, anciennement tabs[5])
