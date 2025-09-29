@@ -333,7 +333,6 @@ BENCHMARKS_PAR_POSTE = {
         'recoveries_per_90': 6,
     }
 }
-
 # -------------------- MAPPING POSTE → COORDONNÉES TERRAIN (CORRIGÉ) --------------------
 # -------------------- MAPPING POSTE → COORDONNÉES TERRAIN (AJUSTÉ POUR LA SURFACE) --------------------
 POSTE_COORDONNEES = {
@@ -351,7 +350,6 @@ POSTE_COORDONNEES = {
     # Valeurs par défaut si le poste n'est pas trouvé
     "Défaut": (50, 50),
 }
-
 def calculate_kpis(data, total_min, total_matches, player_id=None, df_players=None):
     kpis = {}
     passes_tent_col = data.get("Passe tentées", pd.Series([0]))
@@ -493,7 +491,6 @@ with tabs[0]:
     if player_id is not None:
         # --- QUATRE COLONNES : Profil | Espace | Terrain | Espace Final ---
         profil_col, spacer_col, terrain_col, espace_col = st.columns([1.0, 0.3, 1.2, 1.5], gap="small")
-        
         # --- COLONNE 1 : PROFIL JOUEUR (inchangé) ---
         with profil_col:
             st.markdown("##### 👤 Profil Joueur")
@@ -561,11 +558,9 @@ with tabs[0]:
                         """,
                         unsafe_allow_html=True,
                     )
-
         # --- COLONNE 2 : ESPACE VIDE (pour décaler le terrain vers la droite) ---
         with spacer_col:
             pass  # Laisser vide
-
         # --- COLONNE 3 : TERRAIN DE FOOTBALL (agrandi et décalé) ---
         with terrain_col:
             st.markdown("##### 📍 Position sur le Terrain")
@@ -575,7 +570,6 @@ with tabs[0]:
                     p = p.iloc[0]
                     poste_detail = p.get('Poste Détail', p.get('Poste', 'Défaut'))
                     x_pos, y_pos = POSTE_COORDONNEES.get(poste_detail, POSTE_COORDONNEES['Défaut'])
-
                     pitch = mplsoccer.Pitch(
                         pitch_type='opta',
                         pitch_color='#0b1220',
@@ -585,7 +579,6 @@ with tabs[0]:
                     )
                     # --- AGRANDI ICI ---
                     fig, ax = pitch.draw(figsize=(12, 10))  # Augmenté de (6,4) à (10,7)
-
                     pitch.scatter(
                         x_pos, y_pos,
                         ax=ax,
@@ -596,7 +589,6 @@ with tabs[0]:
                         alpha=0.9,
                         zorder=5
                     )
-
                     ax.text(
                         x_pos, y_pos + 5,
                         poste_detail,
@@ -607,13 +599,10 @@ with tabs[0]:
                         weight='bold',
                         zorder=6
                     )
-
                     st.pyplot(fig, use_container_width=True)
-
         # --- COLONNE 4 : ESPACE FINAL (pour équilibrer) ---
         with espace_col:
             pass  # Laisser vide
-
         # --- SECTION KPIs SAISON (PLACÉE EN DESSOUS) ---
         st.markdown("##### 📊 KPIs Saison")
         if not df_match.empty and "PlayerID_norm" in df_match.columns:
@@ -679,7 +668,6 @@ with tabs[0]:
                 ]
                 radar_fig = create_radar_chart(radar_values, radar_categories, "Performance Tactique Complète")
                 st.plotly_chart(radar_fig, use_container_width=True)
-
         # --- SYNTHÈSE MATCH (RESTE EN DESSOUS) ---
         st.markdown("##### 🎯 Synthèse Match Spécifique — Améliorée")
         if not df_match.empty:
@@ -898,6 +886,225 @@ with tabs[1]:
                         <div style="font-size: 12px; color: var(--muted);">/match</div>
                     </div>
                     """, unsafe_allow_html=True)
+
+                # ======================= NOUVELLES VISUALISATIONS : DISTRIBUTION DÉTAILLÉE & POSSESSION =======================
+                st.markdown("##### 📈 Évolution des Passes par Type")
+                if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
+                    # Assurez-vous que les colonnes nécessaires existent
+                    required_pass_cols = [
+                        "Passe complete", "Passe tentées", "Passe courte tentée", "Passe courte complète",
+                        "Passe moyenne tentée", "Passe moyenne complète", "Passe longue tentée", "Passe longue complète",
+                        "Distance passe(m)"
+                    ]
+                    available_pass_cols = [col for col in required_pass_cols if col in match_data.columns]
+                    
+                    if available_pass_cols:
+                        fig_passes = go.Figure()
+                        match_numbers = list(range(1, len(match_data) + 1))
+
+                        # Ajouter les séries de passes
+                        if "Passe complete" in match_data.columns:
+                            fig_passes.add_trace(go.Scatter(
+                                x=match_numbers,
+                                y=to_num(match_data["Passe complete"]),
+                                mode='lines+markers',
+                                name='Passes complètes',
+                                line=dict(color='#3b82f6')
+                            ))
+                        if "Passe tentées" in match_data.columns:
+                            fig_passes.add_trace(go.Scatter(
+                                x=match_numbers,
+                                y=to_num(match_data["Passe tentées"]),
+                                mode='lines+markers',
+                                name='Passes tentées',
+                                line=dict(color='#8b5cf6')
+                            ))
+                        if "Passe courte complète" in match_data.columns:
+                            fig_passes.add_trace(go.Scatter(
+                                x=match_numbers,
+                                y=to_num(match_data["Passe courte complète"]),
+                                mode='lines+markers',
+                                name='Courtes complètes',
+                                line=dict(color='#10b981')
+                            ))
+                        if "Passe courte tentée" in match_data.columns:
+                            fig_passes.add_trace(go.Scatter(
+                                x=match_numbers,
+                                y=to_num(match_data["Passe courte tentée"]),
+                                mode='lines+markers',
+                                name='Courtes tentées',
+                                line=dict(color='rgba(16, 185, 129, 0.6)')
+                            ))
+                        if "Passe moyenne complète" in match_data.columns:
+                            fig_passes.add_trace(go.Scatter(
+                                x=match_numbers,
+                                y=to_num(match_data["Passe moyenne complète"]),
+                                mode='lines+markers',
+                                name='Moyennes complètes',
+                                line=dict(color='#f59e0b')
+                            ))
+                        if "Passe moyenne tentée" in match_data.columns:
+                            fig_passes.add_trace(go.Scatter(
+                                x=match_numbers,
+                                y=to_num(match_data["Passe moyenne tentée"]),
+                                mode='lines+markers',
+                                name='Moyennes tentées',
+                                line=dict(color='rgba(245, 158, 11, 0.6)')
+                            ))
+                        if "Passe longue complète" in match_data.columns and "Passe longue tentée" in match_data.columns:
+                            fig_passes.add_trace(go.Scatter(
+                                x=match_numbers,
+                                y=to_num(match_data["Passe longue complète"]),
+                                mode='lines+markers',
+                                name='Longues complètes',
+                                line=dict(color='#ef4444')
+                            ))
+                            fig_passes.add_trace(go.Scatter(
+                                x=match_numbers,
+                                y=to_num(match_data["Passe longue tentée"]),
+                                mode='lines+markers',
+                                name='Longues tentées',
+                                line=dict(color='rgba(239, 68, 68, 0.6)')
+                            ))
+                        if "Distance passe(m)" in match_data.columns:
+                            fig_passes.add_trace(go.Scatter(
+                                x=match_numbers,
+                                y=to_num(match_data["Distance passe(m)"]),
+                                mode='lines+markers',
+                                name='Distance passes (m)',
+                                yaxis='y2',
+                                line=dict(color='#8b5cf6', dash='dot')
+                            ))
+
+                        fig_passes.update_layout(
+                            title="Évolution des Types de Passes par Match",
+                            xaxis_title="Numéro de Match",
+                            yaxis_title="Nombre de passes",
+                            yaxis2=dict(
+                                title="Distance (m)",
+                                overlaying='y',
+                                side='right',
+                                showgrid=False
+                            ),
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            font=dict(color='#e2e8f0'),
+                            hovermode='x unified',
+                            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+                        )
+                        st.plotly_chart(fig_passes, use_container_width=True)
+
+                    # Calcul et affichage des % si données disponibles
+                    st.markdown("##### 📊 Taux de Réussite par Type de Passe")
+                    pct_cols = st.columns(3)
+                    with pct_cols[0]:
+                        if "Passe tentées" in match_data.columns and "Passe complete" in match_data.columns:
+                            total_tent = to_num(match_data["Passe tentées"]).sum()
+                            total_comp = to_num(match_data["Passe complete"]).sum()
+                            pct_global = (total_comp / total_tent * 100) if total_tent > 0 else 0
+                            st.markdown(f"""
+                            <div class="metric-card">
+                                <h3>Passes Complètes</h3>
+                                <div class="value" style="color: #3b82f6;">{pct_global:.1f}%</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    with pct_cols[1]:
+                        if "Passe courte tentée" in match_data.columns and "Passe courte complète" in match_data.columns:
+                            ct = to_num(match_data["Passe courte tentée"]).sum()
+                            cc = to_num(match_data["Passe courte complète"]).sum()
+                            pct_courte = (cc / ct * 100) if ct > 0 else 0
+                            st.markdown(f"""
+                            <div class="metric-card">
+                                <h3>Courtes</h3>
+                                <div class="value" style="color: #10b981;">{pct_courte:.1f}%</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    with pct_cols[2]:
+                        if "Passe moyenne tentée" in match_data.columns and "Passe moyenne complète" in match_data.columns:
+                            mt = to_num(match_data["Passe moyenne tentée"]).sum()
+                            mc = to_num(match_data["Passe moyenne complète"]).sum()
+                            pct_moy = (mc / mt * 100) if mt > 0 else 0
+                            st.markdown(f"""
+                            <div class="metric-card">
+                                <h3>Moyennes</h3>
+                                <div class="value" style="color: #f59e0b;">{pct_moy:.1f}%</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    if "Passe longue tentée" in match_data.columns and "Passe longue complète" in match_data.columns:
+                        lt = to_num(match_data["Passe longue tentée"]).sum()
+                        lc = to_num(match_data["Passe longue complète"]).sum()
+                        pct_long = (lc / lt * 100) if lt > 0 else 0
+                        st.markdown(f"""
+                        <div class="metric-card" style="margin-top: 12px;">
+                            <h3>Longues</h3>
+                            <div class="value" style="color: #ef4444;">{pct_long:.1f}%</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                else:
+                    st.info("Données insuffisantes pour afficher l'évolution (nécessite ≥2 matchs en mode saison).")
+
+                st.markdown("---")
+
+                # ======================= BALLON TOUCHÉ & POSSESSION =======================
+                st.markdown("##### 🏃‍♂️ Évolution de la Possession et du Toucher de Balle")
+                if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
+                    possession_cols = [
+                        "Ballon touché", "Ballon touché haute", "Ballon touché médian", "Ballon touché basse",
+                        "Ballon touché surface", "Distance parcouru avec ballon (m)", "Distance parcouru progression(m)",
+                        "Reception du ballon"
+                    ]
+                    available_poss_cols = [col for col in possession_cols if col in match_data.columns]
+                    
+                    if available_poss_cols:
+                        fig_poss = go.Figure()
+                        match_numbers = list(range(1, len(match_data) + 1))
+
+                        color_cycle = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1', '#06b6d4']
+
+                        for i, col in enumerate(available_poss_cols):
+                            if col in ["Distance parcouru avec ballon (m)", "Distance parcouru progression(m)"]:
+                                fig_poss.add_trace(go.Scatter(
+                                    x=match_numbers,
+                                    y=to_num(match_data[col]),
+                                    mode='lines+markers',
+                                    name=col,
+                                    yaxis='y2',
+                                    line=dict(color=color_cycle[i % len(color_cycle)], dash='dot')
+                                ))
+                            else:
+                                fig_poss.add_trace(go.Scatter(
+                                    x=match_numbers,
+                                    y=to_num(match_data[col]),
+                                    mode='lines+markers',
+                                    name=col,
+                                    line=dict(color=color_cycle[i % len(color_cycle)])
+                                ))
+
+                        fig_poss.update_layout(
+                            title="Évolution du Toucher de Balle et Déplacement avec Balle",
+                            xaxis_title="Numéro de Match",
+                            yaxis_title="Nombre de touches",
+                            yaxis2=dict(
+                                title="Distance (m)",
+                                overlaying='y',
+                                side='right',
+                                showgrid=False
+                            ),
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            font=dict(color='#e2e8f0'),
+                            hovermode='x unified',
+                            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+                        )
+                        st.plotly_chart(fig_poss, use_container_width=True)
+                    else:
+                        st.info("Aucune donnée de possession disponible.")
+                else:
+                    st.info("Données insuffisantes pour afficher l'évolution (nécessite ≥2 matchs en mode saison).")
+
+                st.markdown("---")
+
                 st.markdown("##### ⚽ Offense (Création et Finition)")
                 off_cols = st.columns(3)
                 with off_cols[0]:
