@@ -399,6 +399,7 @@ def calculate_kpis(data, total_min, total_matches, player_id=None, df_players=No
     # Ajouter les benchmarks au dictionnaire retourné
     kpis['benchmarks'] = benchmarks
     return kpis
+
 # ==================== GOOGLE SHEETS → XLSX (public) ====================
 FILE_ID = "1giSdEgXz3VytLq9Acn9rlQGbUhNAo2bI"
 def _download_gsheets_as_xlsx(file_id: str) -> tuple[bytes, str, int]:
@@ -433,9 +434,12 @@ except Exception as e:
 df_players = data.get("Joueur", pd.DataFrame())
 df_match   = data.get("Match", pd.DataFrame())
 df_well    = data.get("Wellness", pd.DataFrame())
-for df in (df_players, df_match, df_well):
+df_tracking = data.get("Tracking", pd.DataFrame())  # <-- NOUVEAU : onglet Tracking
+
+for df in (df_players, df_match, df_well, df_tracking):
     if not df.empty and "PlayerID" in df.columns:
         df["PlayerID_norm"] = df["PlayerID"].astype(str).str.strip()
+
 mapping = {
     "minute jouee": "Minutes Jouées",
     "tir cadre": "Tir cadre",
@@ -458,8 +462,10 @@ mapping = {
     "recuperation du ballon": "Recuperation du ballon",
 }
 df_match = rename_like(df_match, mapping)
+
 if not df_well.empty and "DATE" in df_well.columns:
     df_well["DATE"] = pd.to_datetime(df_well["DATE"], errors="coerce")
+
 # -------------------- SIDEBAR --------------------
 st.sidebar.markdown("### 🎯 Paramètres d'analyse")
 player_map = {}
@@ -470,21 +476,28 @@ if not df_players.empty and {"PlayerID_norm", "Prénom", "Nom"}.issubset(df_play
 elif not df_match.empty and "PlayerID_norm" in df_match.columns:
     for pid in sorted(df_match["PlayerID_norm"].dropna().unique()):
         player_map[str(pid)] = str(pid)
+
 sel_display = st.sidebar.selectbox("🏃 Sélection joueur", list(player_map.keys()) if player_map else [])
 player_id = player_map.get(sel_display) if player_map else None
+
 st.sidebar.markdown("### ⚙️ Options d'analyse")
 show_predictions = st.sidebar.checkbox("📈 Afficher les prédictions", value=True)
 compare_mode = st.sidebar.checkbox("🔄 Mode comparaison", value=False)
 advanced_metrics = st.sidebar.checkbox("📊 Métriques avancées", value=True)
+
 if compare_mode and len(player_map) > 1:
     available_players = [k for k in player_map.keys() if k != sel_display]
     compare_player = st.sidebar.selectbox("👥 Comparer avec", available_players)
     compare_player_id = player_map.get(compare_player)
 else:
     compare_player_id = None
+
 # -------------------- PAGES --------------------
-tabs = st.tabs(["🏠 Dashboard", "📊 Performance", "📈 Projections", "🩺 Wellness", "🔍 Analyse", "📄 Données"])
-# ======================= DASHBOARD (VERSION CORRIGÉE & RÉORGANISÉE) =======================
+# AJOUT DE L'ONGLET "👁️ Visualisation" ici
+tabs = st.tabs(["🏠 Dashboard", "📊 Performance", "📈 Projections", "🩺 Wellness", "🔍 Analyse", "👁️ Visualisation", "📄 Données"])
+
+# ======================= DASHBOARD =======================
+# ... (tout le contenu existant de tabs[0] reste inchangé)
 with tabs[0]:
     st.markdown('<div class="hero"><span class="pill">🎯 Dashboard de Performance Joueur</span></div>', unsafe_allow_html=True)
     st.write("")
@@ -502,7 +515,6 @@ with tabs[0]:
                 perf_score = calculate_performance_score(dm) if not dm.empty else 0
                 perf_badge = get_performance_badge(perf_score)
                 kpis_season = calculate_kpis(dm, total_minutes, total_matches, player_id, df_players) if not dm.empty else {}
-
                 # --- SECTION 1 : INFOS JOUEUR (AVANT TOUT) ---
                 st.markdown("##### 👤 Informations du Joueur")
                 col_avatar, col_info = st.columns([0.8, 3.2], gap="medium")
@@ -514,9 +526,7 @@ with tabs[0]:
                         <div style="color: var(--muted); font-size: 15px;">{poste_detail} • {p.get('Club','')}</div>
                         <div style="margin-top: 8px;">{perf_badge}</div>
                     """, unsafe_allow_html=True)
-
                 st.write("")
-
                 # --- SECTION 2 : INFOS PHYSIQUES + KPIs ESSENTIELS (6 cartes uniformes) ---
                 cols = st.columns(6, gap="small")
                 metrics = [
@@ -535,9 +545,7 @@ with tabs[0]:
                             <div class="value" style="color: {color};">{val}{unit}</div>
                         </div>
                         """, unsafe_allow_html=True)
-
                 st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-
         # --- SECTION 3 : TERRAIN CORRIGÉ (attaquants DANS la surface) ---
         st.markdown("##### 📍 Position sur le Terrain")
         # ✅ Coordonnées corrigées pour les attaquants → x = 93 à 100 (dans la surface)
@@ -555,7 +563,6 @@ with tabs[0]:
             "Attaquant de côté gauche": (90, 30),   # ✅ DANS la surface
             "Défaut": (50, 50),
         }
-
         if not df_players.empty and "PlayerID_norm" in df_players.columns:
             p = df_players[df_players["PlayerID_norm"] == player_id]
             if not p.empty:
@@ -591,9 +598,7 @@ with tabs[0]:
                     zorder=6
                 )
                 st.pyplot(fig, use_container_width=True)
-
         st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-
         # --- SECTION 4 : KPIs SAISON + RADAR ---
         if not df_match.empty and "PlayerID_norm" in df_match.columns:
             dm = df_match[df_match["PlayerID_norm"] == player_id].copy()
@@ -601,7 +606,6 @@ with tabs[0]:
                 total_minutes = to_num(dm.get("Minutes Jouées")).sum()
                 total_matches = len(dm)
                 kpis_season = calculate_kpis(dm, total_minutes, total_matches, player_id, df_players)
-
                 st.markdown(f"##### ⏱️ Minutes Jouées: {int(total_minutes)} (Moyenne: {int(total_minutes/total_matches) if total_matches > 0 else 0}/match)")
                 max_minutes_season = 3420
                 progress_pct = min(total_minutes / max_minutes_season * 100, 100) if max_minutes_season > 0 else 0
@@ -615,7 +619,6 @@ with tabs[0]:
                     """,
                     unsafe_allow_html=True
                 )
-
                 st.markdown("##### 🕸️ Radar de Performance Tactique")
                 radar_categories = [
                     'Précision Passes', 'Passes Prog./90', 'Passes Décisives',
@@ -635,7 +638,6 @@ with tabs[0]:
                 ]
                 radar_fig = create_radar_chart(radar_values, radar_categories, "Performance Tactique Complète")
                 st.plotly_chart(radar_fig, use_container_width=True)
-
         # --- SECTION 5 : SYNTHÈSE MATCH (inchangée) ---
         st.markdown("##### 🎯 Synthèse Match Spécifique — Améliorée")
         if not df_match.empty:
@@ -726,7 +728,9 @@ with tabs[0]:
                         """, unsafe_allow_html=True)
                     else:
                         st.info("Wellness non disponible")
+
 # ======================= PERFORMANCE =======================
+# ... (tabs[1] inchangé)
 with tabs[1]:
     st.markdown('<div class="hero"><span class="pill">📊 Performance Tactique - Distribution, Offense, Défense</span></div>', unsafe_allow_html=True)
     st.write("")
@@ -821,7 +825,6 @@ with tabs[1]:
                     st.plotly_chart(fig_minutes, use_container_width=True)
                 st.markdown("---")
                 st.markdown("#### 🎯 KPIs de Performance - Synthèse Tactique")
-
                 # ========== DISTRIBUTION ==========
                 st.markdown("##### 📤 Distribution (Contrôle et Création)")
                 dist_cols = st.columns(3)
@@ -852,7 +855,6 @@ with tabs[1]:
                         <div style="font-size: 12px; color: var(--muted);">/match</div>
                     </div>
                     """, unsafe_allow_html=True)
-
                 # --- Visualisations Distribution ---
                 st.markdown("##### 📊 Répartition des Passes par Type (Cumul Saison)")
                 if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
@@ -887,7 +889,6 @@ with tabs[1]:
                             hovermode='x unified'
                         )
                         st.plotly_chart(fig_passes, use_container_width=True)
-
                         st.markdown("##### 🥧 Répartition Finale des Passes Complètes")
                         total_passes = sum(available_passes.values())
                         if total_passes > 0:
@@ -902,7 +903,6 @@ with tabs[1]:
                             st.plotly_chart(fig_pie, use_container_width=True)
                     else:
                         st.info("Données de passes par type non disponibles.")
-
                     st.markdown("##### 📊 Taux de Réussite par Type de Passe")
                     pct_cols = st.columns(3)
                     with pct_cols[0]:
@@ -950,9 +950,7 @@ with tabs[1]:
                         """, unsafe_allow_html=True)
                 else:
                     st.info("Données insuffisantes pour afficher l'évolution (nécessite ≥2 matchs en mode saison).")
-
                 st.markdown("---")
-
                 # ========== POSSESSION ==========
                 st.markdown("##### 🎯 Zones de Toucher de Balle & Déplacement")
                 if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
@@ -980,9 +978,7 @@ with tabs[1]:
                         st.info("Aucune donnée de possession disponible.")
                 else:
                     st.info("Données insuffisantes pour afficher l'évolution (nécessite ≥2 matchs en mode saison).")
-
                 st.markdown("---")
-
                 # ========== OFFENSE ==========
                 st.markdown("##### ⚽ Offense (Création et Finition)")
                 off_cols = st.columns(3)
@@ -1013,7 +1009,6 @@ with tabs[1]:
                         <div style="font-size: 12px; color: var(--muted);">Buts/xG</div>
                     </div>
                     """, unsafe_allow_html=True)
-
                 # --- Visualisation Offensive ---
                 st.markdown("##### 🎯 Performance Offensive Détaillée")
                 if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
@@ -1077,9 +1072,7 @@ with tabs[1]:
                     """, unsafe_allow_html=True)
                 else:
                     st.info("Données offensives non disponibles.")
-
                 st.markdown("---")
-
                 # ========== DÉFENSE ==========
                 st.markdown("##### 🛡️ Défense (Récupération et Duel)")
                 def_cols = st.columns(3)
@@ -1110,7 +1103,6 @@ with tabs[1]:
                         <div style="font-size: 12px; color: var(--muted);">/90 min</div>
                     </div>
                     """, unsafe_allow_html=True)
-
                 # --- Visualisation Défensive ---
                 st.markdown("##### 🛡️ Analyse Détaillée des Duels et Actions Défensives")
                 if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
@@ -1120,18 +1112,15 @@ with tabs[1]:
                     duels_gagnes = to_num(match_data.get("Duel gagne", 0)).sum()
                     duels_aer_g = to_num(match_data.get("Duel aérien gagné", 0)).sum()
                     duels_aer_p = to_num(match_data.get("Duel aérien perdu", 0)).sum()
-
                     # Actions défensives
                     fig_def_actions = go.Figure(data=[go.Bar(x=["Récupérations", "Interceptions"], y=[recup, inter], marker_color=['#8b5cf6', '#ec4899'])])
                     fig_def_actions.update_layout(title="Actions Défensives Totales", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#e2e8f0'), yaxis_title="Nombre")
                     st.plotly_chart(fig_def_actions, use_container_width=True)
-
                     # Taux de réussite en duel
                     if duels_tent > 0:
                         duel_win_pct = duels_gagnes / duels_tent * 100
                         duel_aer_total = duels_aer_g + duels_aer_p
                         duel_aer_pct = duels_aer_g / duel_aer_total * 100 if duel_aer_total > 0 else 0
-
                         fig_duels = go.Figure()
                         fig_duels.add_trace(go.Bar(
                             y=["Duels Globaux", "Duels Aériens"],
@@ -1154,7 +1143,6 @@ with tabs[1]:
                             height=250
                         )
                         st.plotly_chart(fig_duels, use_container_width=True)
-
                 elif analysis_mode == "🎯 Match spécifique" and not match_data.empty:
                     recup = to_num(match_data.iloc[0].get("Recuperation du ballon", 0)).iloc[0]
                     inter = to_num(match_data.iloc[0].get("Interception", 0)).iloc[0]
@@ -1162,7 +1150,6 @@ with tabs[1]:
                     duels_gagnes = to_num(match_data.iloc[0].get("Duel gagne", 0)).iloc[0]
                     duels_aer_g = to_num(match_data.iloc[0].get("Duel aérien gagné", 0)).iloc[0]
                     duels_aer_p = to_num(match_data.iloc[0].get("Duel aérien perdu", 0)).iloc[0]
-
                     col1, col2, col3 = st.columns(3)
                     with col1:
                         st.markdown(f"""<div class="metric-card"><h3>Récupérations</h3><div class="value" style="color: #8b5cf6;">{int(recup)}</div></div>""", unsafe_allow_html=True)
@@ -1172,11 +1159,9 @@ with tabs[1]:
                         duel_pct = duels_gagnes / duels_tent * 100 if duels_tent > 0 else 0
                         color = "#10b981" if duel_pct > 55 else "#f59e0b" if duel_pct > 50 else "#ef4444"
                         st.markdown(f"""<div class="metric-card"><h3>Duels Gagnés</h3><div class="value" style="color: {color};">{duel_pct:.1f}%</div></div>""", unsafe_allow_html=True)
-
                     if duels_aer_g + duels_aer_p > 0:
                         aer_pct = duels_aer_g / (duels_aer_g + duels_aer_p) * 100
                         st.markdown(f"""<div class="metric-card" style="margin-top: 12px;"><h3>Duels Aériens</h3><div class="value" style="color: {'#10b981' if aer_pct > 55 else '#f59e0b' if aer_pct > 50 else '#ef4444'};">{aer_pct:.1f}%</div></div>""", unsafe_allow_html=True)
-
                 st.markdown("---")
                 st.markdown("#### 📊 Synthèse Visuelle des KPIs")
                 st.caption("Comparaison par rapport aux benchmarks spécifiques à votre poste")
@@ -1190,7 +1175,9 @@ with tabs[1]:
                     fig_synthesis.add_shape(type="line", line=dict(color="rgba(255,255,255,0.5)", width=2, dash="dot"), y0=i-0.4, y1=i+0.4, x0=benchmark, x1=benchmark)
                 fig_synthesis.update_layout(title="Performance par KPI vs Benchmark (Spécifique au Poste)", xaxis_title="Valeur", yaxis_title="KPI", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#e2e8f0'), showlegend=False, height=600)
                 st.plotly_chart(fig_synthesis, use_container_width=True)
+
 # ======================= PROJECTIONS =======================
+# ... (tabs[2] inchangé)
 with tabs[2]:
     st.markdown('<div class="hero"><span class="pill">📈 Projections par Régression Linéaire</span></div>', unsafe_allow_html=True)
     st.write("")
@@ -1318,7 +1305,9 @@ with tabs[2]:
                 else:
                     trend_text = "📉 Tendance négative - Travaillez sur ce point."
                 st.success(f"**Interprétation :** {trend_text}")
+
 # ======================= WELLNESS =======================
+# ... (tabs[3] inchangé)
 with tabs[3]:
     st.markdown('<div class="hero"><span class="pill">🩺 Analyse Wellness & Corrélation Performance</span></div>', unsafe_allow_html=True)
     st.write("")
@@ -1498,7 +1487,9 @@ with tabs[3]:
                                         st.error(f"⚠️ {row['Wellness']} a un impact NÉGATIF fort sur {format_perf_kpi(selected_perf_kpi)} (r={row['Corrélation']:.2f})")
                                     elif abs(row['Corrélation']) < 0.3:
                                         st.info(f"ℹ️ {row['Wellness']} n'a pas d'impact significatif sur {format_perf_kpi(selected_perf_kpi)} (r={row['Corrélation']:.2f})")
+
 # ======================= ANALYSE COMPARATIVE =======================
+# ... (tabs[4] inchangé)
 with tabs[4]:
     st.markdown('<div class="hero"><span class="pill">🔍 Analyse Comparative Avancée</span></div>', unsafe_allow_html=True)
     st.write("")
@@ -1610,16 +1601,174 @@ with tabs[4]:
                     font=dict(color='#e2e8f0')
                 )
                 st.plotly_chart(fig_evolution, use_container_width=True)
+
+# ======================= VISUALISATION TRACKING (NOUVEL ONGLET) =======================
+with tabs[5]:  # 👁️ Visualisation
+    st.markdown('<div class="hero"><span class="pill">👁️ Visualisation des Événements sur le Terrain</span></div>', unsafe_allow_html=True)
+    if df_tracking.empty:
+        st.warning("L'onglet 'Tracking' est vide ou manquant dans le fichier Google Sheets.")
+    else:
+        required_cols = ['PlayerID_norm', 'Event', 'X', 'Y']
+        missing = [c for c in required_cols if c not in df_tracking.columns]
+        if missing:
+            st.error(f"Colonnes manquantes dans 'Tracking' : {missing}")
+        else:
+            # Conversion numérique
+            for col in ['X', 'Y', 'X2', 'Y2']:
+                if col in df_tracking.columns:
+                    df_tracking[col] = pd.to_numeric(df_tracking[col], errors='coerce')
+
+            # Conversion coordonnées si en 0–100
+            max_coord = df_tracking[['X', 'Y']].max().max()
+            if pd.notna(max_coord) and max_coord <= 105 and max_coord > 50:
+                st.info("Conversion des coordonnées de 0-100 → 0-120/0-80")
+                df_tracking['X'] *= 1.2
+                df_tracking['Y'] *= 0.8
+                if 'X2' in df_tracking.columns:
+                    df_tracking['X2'] *= 1.2
+                if 'Y2' in df_tracking.columns:
+                    df_tracking['Y2'] *= 0.8
+
+            # Nettoyage texte
+            df_tracking['Event'] = df_tracking['Event'].fillna('').astype(str).str.strip().str.lower().str.title()
+
+            # Classification des zones (logique inversée)
+            def classify_zone(x, y):
+                if 102 < x <= 120 and 18 < y < 62:
+                    return 'Surface Rép.'
+                elif 0 <= x < 36:
+                    return 'Haute'
+                elif 36 <= x <= 90:
+                    return 'Médiane'
+                elif 90 < x <= 102:
+                    return 'Basse'
+                else:
+                    return 'Médiane'
+
+            df_tracking['Zone'] = df_tracking.apply(lambda row: classify_zone(row['X'], row['Y']), axis=1)
+
+            # Filtres dans la sidebar
+            st.sidebar.header("👁️ Filtres Visualisation")
+            if player_id:
+                tracking_filtered = df_tracking[df_tracking['PlayerID_norm'] == player_id].copy()
+            else:
+                tracking_filtered = df_tracking.copy()
+
+            if tracking_filtered.empty:
+                st.warning("Aucun événement pour ce joueur.")
+            else:
+                event_options = sorted(tracking_filtered['Event'].dropna().unique())
+                zone_options = sorted(tracking_filtered['Zone'].dropna().unique())
+
+                selected_events_vis = st.sidebar.multiselect("Événements", event_options, default=event_options[:min(3, len(event_options))] if event_options else [])
+                selected_zones_vis = st.sidebar.multiselect("Zones", zone_options, default=zone_options)
+
+                # Filtre par journée si colonne existe
+                if 'Journée' in tracking_filtered.columns:
+                    match_options = sorted(tracking_filtered['Journée'].dropna().unique())
+                    selected_match = st.sidebar.selectbox("Journée", ["Toutes"] + list(match_options))
+                    if selected_match != "Toutes":
+                        tracking_filtered = tracking_filtered[tracking_filtered['Journée'] == selected_match]
+
+                # Appliquer filtres
+                tracking_filtered = tracking_filtered[
+                    tracking_filtered['Event'].isin(selected_events_vis) &
+                    tracking_filtered['Zone'].isin(selected_zones_vis)
+                ]
+
+                if tracking_filtered.empty:
+                    st.warning("Aucun événement ne correspond aux filtres.")
+                else:
+                    # Palette de couleurs
+                    PALETTE_OPTIONS = {
+                        'Par défaut (Couleurs spécifiques + Tab20)': 'Par défaut',
+                        'Tab20': 'tab20',
+                        'Set1': 'Set1',
+                        'Viridis': 'viridis',
+                        'Plasma': 'plasma',
+                        'Coolwarm': 'coolwarm',
+                        'Pastel1': 'Pastel1',
+                        'Dark2': 'Dark2'
+                    }
+                    selected_palette = st.sidebar.selectbox("Palette", list(PALETTE_OPTIONS.keys()), index=0)
+                    color_palette_name = PALETTE_OPTIONS[selected_palette]
+
+                    base_colors = {
+                        'Shot': '#FF4B4B', 'Pass': '#6C9AC3', 'Dribble': '#FFA500',
+                        'Cross': '#92c952', 'Tackle': '#A52A2A', 'Interception': '#FFD700',
+                        'Clearance': '#00CED1'
+                    }
+
+                    def get_event_colors(event_list, palette_name, base_colors_dict):
+                        if palette_name == 'Par défaut':
+                            cmap_for_others = cm.get_cmap('tab20', max(1, len(event_list)))
+                            generated_colors = {event: mcolors.to_hex(cmap_for_others(i)) for i, event in enumerate([e for e in event_list if e not in base_colors_dict])}
+                            return {**base_colors_dict, **generated_colors}
+                        else:
+                            try:
+                                cmap_selected = cm.get_cmap(palette_name, max(1, len(event_list)))
+                                return {event: mcolors.to_hex(cmap_selected(i)) for i, event in enumerate(event_list)}
+                            except ValueError:
+                                cmap_fallback = cm.get_cmap('tab20', max(1, len(event_list)))
+                                return {event: mcolors.to_hex(cmap_fallback(i)) for i, event in enumerate(event_list)}
+
+                    event_colors = get_event_colors(event_options, color_palette_name, base_colors)
+
+                    # Tableau récap
+                    st.subheader("Répartition des événements")
+                    zone_counts = tracking_filtered.groupby(['Event', 'Zone']).size().unstack(fill_value=0)
+                    st.dataframe(zone_counts)
+
+                    # Visualisation des événements
+                    st.subheader("Carte des événements")
+                    pitch = Pitch(pitch_color='#0b1220', line_color='#e2e8f0', linewidth=1)
+                    fig, ax = pitch.draw(figsize=(10, 6))
+                    legend_elements = []
+
+                    for event_type in selected_events_vis:
+                        ev_data = tracking_filtered[tracking_filtered['Event'] == event_type]
+                        color = event_colors.get(event_type, '#ffffff')
+                        has_xy2 = ev_data[['X2', 'Y2']].notna().all(axis=1)
+
+                        if has_xy2.any():
+                            pitch.arrows(
+                                ev_data[has_xy2]['X'], ev_data[has_xy2]['Y'],
+                                ev_data[has_xy2]['X2'], ev_data[has_xy2]['Y2'],
+                                color=color, width=2.0, headwidth=6, headlength=4, alpha=0.8, ax=ax
+                            )
+                        if (~has_xy2).any():
+                            pitch.scatter(
+                                ev_data[~has_xy2]['X'], ev_data[~has_xy2]['Y'],
+                                ax=ax, fc=color, ec='white', lw=0.5, s=80, alpha=0.8
+                            )
+                        legend_elements.append(Patch(facecolor=color, label=event_type))
+
+                    ax.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1, 0.5))
+                    st.pyplot(fig, use_container_width=True)
+
+                    # Heatmap
+                    st.subheader("Heatmap des événements")
+                    pitch_hm = Pitch(pitch_type='statsbomb', pitch_color='#0b1220', line_color='#e2e8f0')
+                    fig2, ax2 = pitch_hm.draw(figsize=(10, 6))
+                    bin_stat = pitch_hm.bin_statistic(tracking_filtered['X'], tracking_filtered['Y'], statistic='count', bins=(6, 5))
+                    pitch_hm.heatmap(bin_stat, ax=ax2, cmap='Reds', edgecolor='white', alpha=0.8)
+                    pitch_hm.label_heatmap(bin_stat, ax=ax2, str_format='{:.0f}', fontsize=12, color='white', ha='center', va='center')
+                    st.pyplot(fig2, use_container_width=True)
+
 # ======================= DONNÉES =======================
-with tabs[5]:
+# ... (tabs[6] inchangé, anciennement tabs[5])
+with tabs[6]:
     st.markdown("#### 📄 Données Brutes et Export")
     col1, col2, col3 = st.columns(3)
     col1.metric("📊 Joueurs", df_players.shape[0])
     col2.metric("⚽ Matchs", df_match.shape[0])
     col3.metric("🩺 Wellness", df_well.shape[0])
+    if 'df_tracking' in locals() and not df_tracking.empty:
+        col4 = st.columns(4)[-1]
+        col4.metric("📍 Tracking", df_tracking.shape[0])
     data_view = st.selectbox(
         "Vue des données",
-        ["Joueurs", "Matchs", "Wellness", "Statistiques agrégées"]
+        ["Joueurs", "Matchs", "Wellness", "Tracking", "Statistiques agrégées"]
     )
     if data_view == "Joueurs":
         st.markdown("**👥 Données Joueurs**")
@@ -1638,6 +1787,13 @@ with tabs[5]:
             st.dataframe(dw_filtered, use_container_width=True)
         else:
             st.dataframe(df_well.head(50), use_container_width=True)
+    elif data_view == "Tracking":
+        st.markdown("**📍 Données Tracking**")
+        if player_id:
+            dt_filtered = df_tracking[df_tracking["PlayerID_norm"] == player_id]
+            st.dataframe(dt_filtered, use_container_width=True)
+        else:
+            st.dataframe(df_tracking.head(50), use_container_width=True)
     elif data_view == "Statistiques agrégées":
         st.markdown("**📈 Statistiques Agrégées par Joueur**")
         if not df_match.empty and "PlayerID_norm" in df_match.columns:
@@ -1671,6 +1827,7 @@ with tabs[5]:
                     file_name=f"football_stats_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                     mime="text/csv"
                 )
+
 # -------------------- FOOTER --------------------
 st.markdown("---")
 st.markdown(
@@ -1678,7 +1835,7 @@ st.markdown(
     <div style="text-align: center; padding: 20px; color: var(--muted);">
         <p>⚽ <strong>Football Hub Analytics</strong> - Analyse de Performance Avancée</p>
         <p>Construit avec ❤️ par votre équipe Data • Les données se synchronisent automatiquement</p>
-        <p style="font-size: 12px;">Version 2.7 • Benchmarks Dynamiques • Minutes Jouées Visibles • Poste Détail • Cloud Ready</p>
+        <p style="font-size: 12px;">Version 2.8 • Visualisation Tracking ajoutée • Zones inversées • Filtres dynamiques</p>
     </div>
     """,
     unsafe_allow_html=True
