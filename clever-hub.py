@@ -1174,6 +1174,9 @@ with tabs[1]:
                 else:
                     st.info("Données offensives non disponibles.")
 
+                st.markdown("---")
+
+                # ======================= DÉFENSE DÉTAILLÉE =======================
                 st.markdown("##### 🛡️ Défense (Récupération et Duel)")
                 def_cols = st.columns(3)
                 with def_cols[0]:
@@ -1203,6 +1206,99 @@ with tabs[1]:
                         <div style="font-size: 12px; color: var(--muted);">/90 min</div>
                     </div>
                     """, unsafe_allow_html=True)
+
+                # --- Visualisation défensive détaillée ---
+                st.markdown("##### 🛡️ Analyse Détaillée des Duels et Actions Défensives")
+                if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
+                    # Données défensives
+                    recup = to_num(match_data.get("Recuperation du ballon", 0)).sum()
+                    inter = to_num(match_data.get("Interception", 0)).sum()
+                    duels_tent = to_num(match_data.get("Duel tenté", 0)).sum()
+                    duels_gagnes = to_num(match_data.get("Duel gagne", 0)).sum()
+                    duels_aer_g = to_num(match_data.get("Duel aérien gagné", 0)).sum()
+                    duels_aer_p = to_num(match_data.get("Duel aérien perdu", 0)).sum()
+                    
+                    # Graphique 1 : Actions défensives totales
+                    fig_def_actions = go.Figure(data=[
+                        go.Bar(
+                            x=["Récupérations", "Interceptions"],
+                            y=[recup, inter],
+                            marker_color=['#8b5cf6', '#ec4899']
+                        )
+                    ])
+                    fig_def_actions.update_layout(
+                        title="Actions Défensives Totales",
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='#e2e8f0'),
+                        yaxis_title="Nombre"
+                    )
+                    st.plotly_chart(fig_def_actions, use_container_width=True)
+
+                    # Graphique 2 : Duels (global + aérien)
+                    if duels_tent > 0:
+                        duel_win_pct = duels_gagnes / duels_tent * 100
+                        duel_aer_total = duels_aer_g + duels_aer_p
+                        duel_aer_pct = duels_aer_g / duel_aer_total * 100 if duel_aer_total > 0 else 0
+
+                        fig_duels = make_subplots(
+                            rows=1, cols=2,
+                            subplot_titles=("Duels Globaux", "Duels Aériens")
+                        )
+                        # Duels globaux
+                        fig_duels.add_trace(go.Indicator(
+                            mode="gauge+number",
+                            value=duel_win_pct,
+                            title={'text': "Taux de réussite"},
+                            gauge={'axis': {'range': [0, 100]},
+                                   'bar': {'color': "#10b981" if duel_win_pct > 55 else "#f59e0b" if duel_win_pct > 50 else "#ef4444"},
+                                   'steps': [{'range': [0, 50], 'color': 'rgba(239, 68, 68, 0.2)'},
+                                             {'range': [50, 60], 'color': 'rgba(245, 158, 11, 0.2)'},
+                                             {'range': [60, 100], 'color': 'rgba(16, 185, 129, 0.2)'}]}
+                        ), row=1, col=1)
+
+                        # Duels aériens
+                        fig_duels.add_trace(go.Indicator(
+                            mode="gauge+number",
+                            value=duel_aer_pct,
+                            title={'text': "Taux de réussite"},
+                            gauge={'axis': {'range': [0, 100]},
+                                   'bar': {'color': "#10b981" if duel_aer_pct > 55 else "#f59e0b" if duel_aer_pct > 50 else "#ef4444"},
+                                   'steps': [{'range': [0, 50], 'color': 'rgba(239, 68, 68, 0.2)'},
+                                             {'range': [50, 60], 'color': 'rgba(245, 158, 11, 0.2)'},
+                                             {'range': [60, 100], 'color': 'rgba(16, 185, 129, 0.2)'}]}
+                        ), row=1, col=2)
+
+                        fig_duels.update_layout(
+                            title="Performance en Duel",
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            font=dict(color='#e2e8f0'),
+                            height=300
+                        )
+                        st.plotly_chart(fig_duels, use_container_width=True)
+
+                elif analysis_mode == "🎯 Match spécifique" and not match_data.empty:
+                    recup = to_num(match_data.iloc[0].get("Recuperation du ballon", 0)).iloc[0]
+                    inter = to_num(match_data.iloc[0].get("Interception", 0)).iloc[0]
+                    duels_tent = to_num(match_data.iloc[0].get("Duel tenté", 0)).iloc[0]
+                    duels_gagnes = to_num(match_data.iloc[0].get("Duel gagne", 0)).iloc[0]
+                    duels_aer_g = to_num(match_data.iloc[0].get("Duel aérien gagné", 0)).iloc[0]
+                    duels_aer_p = to_num(match_data.iloc[0].get("Duel aérien perdu", 0)).iloc[0]
+
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.markdown(f"""<div class="metric-card"><h3>Récupérations</h3><div class="value" style="color: #8b5cf6;">{int(recup)}</div></div>""", unsafe_allow_html=True)
+                    with col2:
+                        st.markdown(f"""<div class="metric-card"><h3>Interceptions</h3><div class="value" style="color: #ec4899;">{int(inter)}</div></div>""", unsafe_allow_html=True)
+                    with col3:
+                        duel_pct = duels_gagnes / duels_tent * 100 if duels_tent > 0 else 0
+                        color = "#10b981" if duel_pct > 55 else "#f59e0b" if duel_pct > 50 else "#ef4444"
+                        st.markdown(f"""<div class="metric-card"><h3>Duels Gagnés</h3><div class="value" style="color: {color};">{duel_pct:.1f}%</div></div>""", unsafe_allow_html=True)
+
+                    if duels_aer_g + duels_aer_p > 0:
+                        aer_pct = duels_aer_g / (duels_aer_g + duels_aer_p) * 100
+                        st.markdown(f"""<div class="metric-card" style="margin-top: 12px;"><h3>Duels Aériens</h3><div class="value" style="color: {'#10b981' if aer_pct > 55 else '#f59e0b' if aer_pct > 50 else '#ef4444'};">{aer_pct:.1f}%</div></div>""", unsafe_allow_html=True)
+
                 st.markdown("---")
                 st.markdown("#### 📊 Synthèse Visuelle des KPIs")
                 st.caption("Comparaison par rapport aux benchmarks spécifiques à votre poste")
