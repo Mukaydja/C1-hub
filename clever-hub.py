@@ -15,6 +15,8 @@ import hashlib
 import requests
 # -------------------- NOUVEL IMPORT AJOUTÉ --------------------
 import mplsoccer
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
 warnings.filterwarnings('ignore')
 st.set_page_config(page_title="Football Hub - Analytics", page_icon="⚽", layout="wide")
 # -------------------- STYLE AVANCÉ --------------------
