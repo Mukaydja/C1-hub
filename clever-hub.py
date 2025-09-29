@@ -888,105 +888,43 @@ with tabs[1]:
                     """, unsafe_allow_html=True)
 
                 # ======================= NOUVELLES VISUALISATIONS : DISTRIBUTION DÉTAILLÉE & POSSESSION =======================
-                st.markdown("##### 📈 Évolution des Passes par Type")
+                st.markdown("##### 📊 Répartition des Passes par Type (Cumul Saison)")
                 if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
-                    # Liste exacte des colonnes après mapping
-                    required_pass_cols = [
-                        "Passe complete", "Passe tentées",
-                        "Passe courte tentée", "Passe courte complète",
-                        "Passe moyenne tentée", "Passe moyenne complète",
-                        "Passe longue tentée", "Passe longue complète",
-                        "Distance passe(m)"
-                    ]
-                    available_pass_cols = [col for col in required_pass_cols if col in match_data.columns]
-
-                    if available_pass_cols:
-                        fig_passes = go.Figure()
+                    pass_cols = {
+                        "Courtes complètes": "Passe courte complète",
+                        "Moyennes complètes": "Passe moyenne complète",
+                        "Longues complètes": "Passe longue complète"
+                    }
+                    available_passes = {}
+                    for label, col in pass_cols.items():
+                        if col in match_data.columns:
+                            available_passes[label] = to_num(match_data[col]).sum()
+                    
+                    if available_passes:
+                        # Créer un stacked area chart cumulé par match
                         match_numbers = list(range(1, len(match_data) + 1))
+                        fig_passes = go.Figure()
 
-                        if "Passe complete" in match_data.columns:
-                            fig_passes.add_trace(go.Scatter(
-                                x=match_numbers,
-                                y=to_num(match_data["Passe complete"]),
-                                mode='lines+markers',
-                                name='Passes complètes',
-                                line=dict(color='#3b82f6')
-                            ))
-                        if "Passe tentées" in match_data.columns:
-                            fig_passes.add_trace(go.Scatter(
-                                x=match_numbers,
-                                y=to_num(match_data["Passe tentées"]),
-                                mode='lines+markers',
-                                name='Passes tentées',
-                                line=dict(color='#8b5cf6')
-                            ))
-                        if "Passe courte complète" in match_data.columns:
-                            fig_passes.add_trace(go.Scatter(
-                                x=match_numbers,
-                                y=to_num(match_data["Passe courte complète"]),
-                                mode='lines+markers',
-                                name='Courtes complètes',
-                                line=dict(color='#10b981')
-                            ))
-                        if "Passe courte tentée" in match_data.columns:
-                            fig_passes.add_trace(go.Scatter(
-                                x=match_numbers,
-                                y=to_num(match_data["Passe courte tentée"]),
-                                mode='lines+markers',
-                                name='Courtes tentées',
-                                line=dict(color='rgba(16, 185, 129, 0.6)')
-                            ))
-                        if "Passe moyenne complète" in match_data.columns:
-                            fig_passes.add_trace(go.Scatter(
-                                x=match_numbers,
-                                y=to_num(match_data["Passe moyenne complète"]),
-                                mode='lines+markers',
-                                name='Moyennes complètes',
-                                line=dict(color='#f59e0b')
-                            ))
-                        if "Passe moyenne tentée" in match_data.columns:
-                            fig_passes.add_trace(go.Scatter(
-                                x=match_numbers,
-                                y=to_num(match_data["Passe moyenne tentée"]),
-                                mode='lines+markers',
-                                name='Moyennes tentées',
-                                line=dict(color='rgba(245, 158, 11, 0.6)')
-                            ))
-                        if "Passe longue complète" in match_data.columns and "Passe longue tentée" in match_data.columns:
-                            fig_passes.add_trace(go.Scatter(
-                                x=match_numbers,
-                                y=to_num(match_data["Passe longue complète"]),
-                                mode='lines+markers',
-                                name='Longues complètes',
-                                line=dict(color='#ef4444')
-                            ))
-                            fig_passes.add_trace(go.Scatter(
-                                x=match_numbers,
-                                y=to_num(match_data["Passe longue tentée"]),
-                                mode='lines+markers',
-                                name='Longues tentées',
-                                line=dict(color='rgba(239, 68, 68, 0.6)')
-                            ))
-                        if "Distance passe(m)" in match_data.columns:
-                            fig_passes.add_trace(go.Scatter(
-                                x=match_numbers,
-                                y=to_num(match_data["Distance passe(m)"]),
-                                mode='lines+markers',
-                                name='Distance passes (m)',
-                                yaxis='y2',
-                                line=dict(color='#8b5cf6', dash='dot')
-                            ))
+                        # Préparer les données cumulées
+                        cumul_data = {}
+                        for label, col in pass_cols.items():
+                            if col in match_data.columns:
+                                values = to_num(match_data[col]).cumsum()
+                                cumul_data[label] = values
+                                fig_passes.add_trace(go.Scatter(
+                                    x=match_numbers,
+                                    y=values,
+                                    mode='lines',
+                                    name=label,
+                                    stackgroup='one',
+                                    line=dict(width=0),
+                                    fillcolor={'Courtes complètes': '#10b981', 'Moyennes complètes': '#f59e0b', 'Longues complètes': '#ef4444'}.get(label, '#3b82f6')
+                                ))
 
                         fig_passes.update_layout(
-                            title="Évolution des Types de Passes par Match",
+                            title="Cumul des Passes Complètes par Type au Fil des Matchs",
                             xaxis_title="Numéro de Match",
-                            yaxis_title="Nombre de passes",
-                            yaxis2=dict(
-                                title="Distance (m)",
-                                overlaying='y',
-                                side='right',
-                                showgrid=False
-                            ),
+                            yaxis_title="Passes complètes (cumulées)",
                             paper_bgcolor='rgba(0,0,0,0)',
                             plot_bgcolor='rgba(0,0,0,0)',
                             font=dict(color='#e2e8f0'),
@@ -994,6 +932,26 @@ with tabs[1]:
                             legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
                         )
                         st.plotly_chart(fig_passes, use_container_width=True)
+
+                        # --- Pie chart pour la répartition finale ---
+                        st.markdown("##### 🥧 Répartition Finale des Passes Complètes")
+                        total_passes = sum(available_passes.values())
+                        if total_passes > 0:
+                            fig_pie = go.Figure(data=[go.Pie(
+                                labels=list(available_passes.keys()),
+                                values=list(available_passes.values()),
+                                marker_colors=['#10b981', '#f59e0b', '#ef4444'],
+                                textinfo='percent+label',
+                                hole=0.4
+                            )])
+                            fig_pie.update_layout(
+                                title="Répartition des Passes Complètes par Distance",
+                                paper_bgcolor='rgba(0,0,0,0)',
+                                font=dict(color='#e2e8f0')
+                            )
+                            st.plotly_chart(fig_pie, use_container_width=True)
+                    else:
+                        st.info("Données de passes par type non disponibles.")
 
                     # --- Taux de réussite ---
                     st.markdown("##### 📊 Taux de Réussite par Type de Passe")
@@ -1048,61 +1006,76 @@ with tabs[1]:
                 st.markdown("---")
 
                 # ======================= BALLON TOUCHÉ & POSSESSION =======================
-                st.markdown("##### 🏃‍♂️ Évolution de la Possession et du Toucher de Balle")
+                st.markdown("##### 🎯 Zones de Toucher de Balle & Déplacement")
                 if analysis_mode == "📊 Vue saison complète" and len(match_data) > 1:
-                    possession_cols = [
-                        "Ballon touché",
-                        "Ballon touché haute",
-                        "Ballon touché médian",
-                        "Ballon touché basse",
-                        "Ballon touché surface",
-                        "Distance parcouru avec ballon (m)",
-                        "Distance parcouru progression(m)",
-                        "Recuperation du ballon"  # ← CORRIGÉ
-                    ]
-                    available_poss_cols = [col for col in possession_cols if col in match_data.columns]
+                    # Données de zones
+                    zone_cols = {
+                        "Haute": "Ballon touché haute",
+                        "Médiane": "Ballon touché médian",
+                        "Basse": "Ballon touché basse",
+                        "Surface": "Ballon touché surface"
+                    }
+                    zones = {}
+                    for zone, col in zone_cols.items():
+                        if col in match_data.columns:
+                            zones[zone] = to_num(match_data[col]).sum()
+                    
+                    # Données de distance
+                    dist_cols = {
+                        "Avec ballon": "Distance parcouru avec ballon (m)",
+                        "En progression": "Distance parcouru progression(m)"
+                    }
+                    distances = {}
+                    for label, col in dist_cols.items():
+                        if col in match_data.columns:
+                            distances[label] = to_num(match_data[col]).sum()
+                    
+                    if zones or distances:
+                        fig_zones = make_subplots(
+                            rows=1, cols=2,
+                            column_widths=[0.6, 0.4],
+                            specs=[[{"type": "bar"}, {"type": "bar"}]],
+                            subplot_titles=("Touches par Zone", "Distances avec Ballon")
+                        )
 
-                    if available_poss_cols:
-                        fig_poss = go.Figure()
-                        match_numbers = list(range(1, len(match_data) + 1))
-                        color_cycle = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1', '#06b6d4']
+                        # Barres horizontales pour les zones
+                        if zones:
+                            fig_zones.add_trace(go.Bar(
+                                y=list(zones.keys()),
+                                x=list(zones.values()),
+                                orientation='h',
+                                marker_color=['#3b82f6', '#10b981', '#f59e0b', '#ef4444'][:len(zones)],
+                                name="Touches"
+                            ), row=1, col=1)
 
-                        for i, col in enumerate(available_poss_cols):
-                            if col in ["Distance parcouru avec ballon (m)", "Distance parcouru progression(m)"]:
-                                fig_poss.add_trace(go.Scatter(
-                                    x=match_numbers,
-                                    y=to_num(match_data[col]),
-                                    mode='lines+markers',
-                                    name=col,
-                                    yaxis='y2',
-                                    line=dict(color=color_cycle[i % len(color_cycle)], dash='dot')
-                                ))
-                            else:
-                                fig_poss.add_trace(go.Scatter(
-                                    x=match_numbers,
-                                    y=to_num(match_data[col]),
-                                    mode='lines+markers',
-                                    name=col,
-                                    line=dict(color=color_cycle[i % len(color_cycle)])
-                                ))
+                        # Barres verticales pour distances
+                        if distances:
+                            fig_zones.add_trace(go.Bar(
+                                x=list(distances.keys()),
+                                y=list(distances.values()),
+                                marker_color=['#8b5cf6', '#ec4899'],
+                                name="Distance (m)"
+                            ), row=1, col=2)
 
-                        fig_poss.update_layout(
-                            title="Évolution du Toucher de Balle et Déplacement avec Balle",
-                            xaxis_title="Numéro de Match",
-                            yaxis_title="Nombre de touches",
-                            yaxis2=dict(
-                                title="Distance (m)",
-                                overlaying='y',
-                                side='right',
-                                showgrid=False
-                            ),
+                        fig_zones.update_layout(
+                            title="Synthèse Possession : Zones & Déplacement",
                             paper_bgcolor='rgba(0,0,0,0)',
                             plot_bgcolor='rgba(0,0,0,0)',
                             font=dict(color='#e2e8f0'),
-                            hovermode='x unified',
-                            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+                            showlegend=False,
+                            height=400
                         )
-                        st.plotly_chart(fig_poss, use_container_width=True)
+                        st.plotly_chart(fig_zones, use_container_width=True)
+
+                        # --- KPI supplémentaires ---
+                        if "Recuperation du ballon" in match_data.columns:
+                            total_recup = to_num(match_data["Recuperation du ballon"]).sum()
+                            st.markdown(f"""
+                            <div class="metric-card" style="margin-top: 12px;">
+                                <h3>Récupérations Totales</h3>
+                                <div class="value" style="color: #8b5cf6;">{int(total_recup)}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
                     else:
                         st.info("Aucune donnée de possession disponible.")
                 else:
@@ -1187,6 +1160,7 @@ with tabs[1]:
                     kpis['interceptions_per_90'],
                     kpis['recoveries_per_90']
                 ]
+                # Utiliser les benchmarks dynamiques
                 benchmarks = list(kpis['benchmarks'].values())
                 colors = ['#3b82f6', '#3b82f6', '#3b82f6', '#10b981', '#10b981', '#10b981', '#ef4444', '#ef4444', '#ef4444']
                 fig_synthesis = go.Figure()
