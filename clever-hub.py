@@ -15,6 +15,7 @@ import hashlib
 import requests
 # -------------------- NOUVEL IMPORT AJOUTÉ --------------------
 import mplsoccer
+from mplsoccer import Pitch
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 warnings.filterwarnings('ignore')
