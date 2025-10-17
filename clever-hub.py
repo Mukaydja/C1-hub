@@ -1180,9 +1180,7 @@ with tabs[1]:
                 fig_synthesis.update_layout(title="Performance par KPI vs Benchmark (Spécifique au Poste)", xaxis_title="Valeur", yaxis_title="KPI", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#e2e8f0'), showlegend=False, height=600)
                 st.plotly_chart(fig_synthesis, use_container_width=True)
 
-Voici **tout le bloc prédiction** prêt à coller (imports ML + helpers + l’onglet `Projections`). Remplace simplement ta section actuelle par celui-ci.
 
-```python
 # ========================= BLOC PRÉDICTION AVANCÉE =========================
 # (à placer après tes imports + helpers existants, et en remplacement du with tabs[2])
 
