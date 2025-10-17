@@ -1180,135 +1180,320 @@ with tabs[1]:
                 fig_synthesis.update_layout(title="Performance par KPI vs Benchmark (Spécifique au Poste)", xaxis_title="Valeur", yaxis_title="KPI", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#e2e8f0'), showlegend=False, height=600)
                 st.plotly_chart(fig_synthesis, use_container_width=True)
 
-# ======================= PROJECTIONS =======================
-# ... (tabs[2] inchangé)
+Voici **tout le bloc prédiction** prêt à coller (imports ML + helpers + l’onglet `Projections`). Remplace simplement ta section actuelle par celui-ci.
+
+```python
+# ========================= BLOC PRÉDICTION AVANCÉE =========================
+# (à placer après tes imports + helpers existants, et en remplacement du with tabs[2])
+
+# ====== IMPORTS ML ======
+try:
+    from sklearn.linear_model import Ridge
+    from sklearn.model_selection import TimeSeriesSplit
+    from sklearn.metrics import mean_absolute_error, r2_score
+    SKLEARN_OK = True
+except Exception:
+    SKLEARN_OK = False
+
+# ====== HELPERS PREDICTION ======
+def _safe_scalar(x):
+    try:
+        return float(to_num(pd.Series([x])).iloc[0])
+    except Exception:
+        return 0.0
+
+def build_per_match_kpis(dm: pd.DataFrame, player_id: str, df_players: pd.DataFrame) -> pd.DataFrame:
+    """KPIs par match (pas cumulés) ordonnés par DATE si dispo."""
+    if dm.empty:
+        return pd.DataFrame()
+    df = dm.copy()
+    if "DATE" in df.columns:
+        df["DATE"] = pd.to_datetime(df["DATE"], errors="coerce")
+        df = df.sort_values("DATE")
+    df = df.reset_index(drop=True)
+
+    rows = []
+    for i, row in df.iterrows():
+        minutes = _safe_scalar(row.get("Minutes Jouées", 0))
+        match_df = pd.DataFrame([row])
+        k = calculate_kpis(match_df, minutes, 1, player_id, df_players)  # KPIs du match
+        k.pop("benchmarks", None)
+        rows.append({
+            "match_number": i + 1,
+            "DATE": row.get("DATE", pd.NaT),
+            "Journée": row.get("Journée", None),
+            "Adversaire": row.get("Adversaire", None),
+            "minutes_jouees": minutes,
+            **k
+        })
+    out = pd.DataFrame(rows)
+
+    # Jours de repos entre matchs
+    if "DATE" in out.columns:
+        out["rest_days"] = out["DATE"].diff().dt.days.fillna(7).clip(lower=0)
+    else:
+        out["rest_days"] = 7
+
+    return out
+
+def add_lag_rolling_features(df: pd.DataFrame, target_col: str, lags=(1,2,3), windows=(3,5)) -> pd.DataFrame:
+    df = df.copy()
+    for L in lags:
+        df[f"{target_col}_lag{L}"] = df[target_col].shift(L)
+    for w in windows:
+        df[f"{target_col}_ma{w}"] = df[target_col].rolling(w).mean()
+        df[f"{target_col}_std{w}"] = df[target_col].rolling(w).std()
+    for L in (1,2,3):
+        df[f"minutes_lag{L}"] = df["minutes_jouees"].shift(L)
+    for w in (3,5):
+        df[f"minutes_ma{w}"] = df["minutes_jouees"].rolling(w).mean()
+    return df
+
+def merge_wellness_features(per_match: pd.DataFrame, dw: pd.DataFrame) -> pd.DataFrame:
+    """Ajoute la moyenne des 3 jours précédant chaque match pour les indicateurs wellness."""
+    if dw is None or dw.empty or "DATE" not in dw.columns:
+        return per_match
+    W = dw.copy()
+    W["DATE"] = pd.to_datetime(W["DATE"], errors="coerce")
+    metrics = [c for c in ["Energie générale","Fraicheur musculaire","Humeur","Sommeil","Intensité douleur"] if c in W.columns]
+    if not metrics:
+        return per_match
+
+    def agg_window(date):
+        win = W[(W["DATE"] <= date) & (W["DATE"] >= date - timedelta(days=3))]
+        return {f"w_{m}": float(pd.to_numeric(win[m], errors="coerce").mean()) if not win.empty else np.nan for m in metrics}
+
+    features = []
+    for _, r in per_match.iterrows():
+        d = r.get("DATE", pd.NaT)
+        if pd.isna(d):
+            features.append({f"w_{m}": np.nan for m in metrics})
+        else:
+            features.append(agg_window(pd.to_datetime(d)))
+    Wf = pd.DataFrame(features)
+    return pd.concat([per_match.reset_index(drop=True), Wf.reset_index(drop=True)], axis=1)
+
+def ewma_forecast(series: pd.Series, horizon: int, alpha: float=0.4):
+    """Baseline EWMA: prévision = dernier niveau lissé ; bande = ±1.96*std résiduels."""
+    s = pd.to_numeric(series, errors="coerce").dropna()
+    if len(s) < 3:
+        last = float(s.iloc[-1]) if len(s) else 0.0
+        return np.array([last]*horizon), 0.0
+    level = s.ewm(alpha=alpha, adjust=False).mean()
+    resid = s - level
+    sigma = resid.std(ddof=1) if len(resid) > 1 else 0.0
+    return np.array([float(level.iloc[-1])]*horizon), sigma
+
+def ridge_ts_forecast(df_feat: pd.DataFrame, target_col: str, horizon: int, alphas=(0.1,1.0,10.0)):
+    """Ridge avec TimeSeriesSplit, lags/rolling + wellness. Retourne preds futures, bande, métriques."""
+    if not SKLEARN_OK:
+        return None
+
+    df = df_feat.copy()
+    drop_cols = {"match_number","DATE","Journée","Adversaire"}
+    X_cols = [c for c in df.columns if c not in drop_cols.union({target_col})]
+    df = df.dropna(subset=[target_col] + X_cols).reset_index(drop=True)
+    if len(df) < 12:
+        return None
+
+    best = {"alpha": None, "mae": np.inf, "r2": -np.inf}
+    tscv = TimeSeriesSplit(n_splits=min(5, max(2, len(df)//6)))
+    for a in alphas:
+        mae_list, r2_list = [], []
+        for tr_idx, te_idx in tscv.split(df):
+            Xtr, Xte = df.loc[tr_idx, X_cols].values, df.loc[te_idx, X_cols].values
+            ytr, yte = df.loc[tr_idx, target_col].values, df.loc[te_idx, target_col].values
+            mdl = Ridge(alpha=a, fit_intercept=True)
+            mdl.fit(Xtr, ytr)
+            yhat = mdl.predict(Xte)
+            mae_list.append(mean_absolute_error(yte, yhat))
+            r2_list.append(r2_score(yte, yhat))
+        mae, r2 = float(np.mean(mae_list)), float(np.mean(r2_list))
+        if mae < best["mae"]:
+            best = {"alpha": a, "mae": mae, "r2": r2}
+
+    mdl = Ridge(alpha=best["alpha"], fit_intercept=True)
+    mdl.fit(df[X_cols].values, df[target_col].values)
+    coef_series = pd.Series(mdl.coef_, index=X_cols).sort_values(key=lambda s: s.abs(), ascending=False)
+
+    # Prévision récursive h étapes
+    hist = df.copy()
+    preds = []
+    last_rows = hist.iloc[[-1]].copy()
+    for _ in range(horizon):
+        tmp = pd.concat([hist, last_rows], ignore_index=True)
+        tmp = add_lag_rolling_features(tmp, target_col)
+        row = tmp.iloc[[-1]][X_cols]
+        yhat = float(mdl.predict(row.values)[0])
+        preds.append(yhat)
+        new_row = last_rows.copy()
+        new_row[target_col] = yhat
+        hist = pd.concat([hist, new_row], ignore_index=True)
+        last_rows = new_row
+
+    # Bande 95% approx (MAE -> sigma)
+    sigma = best["mae"] * np.sqrt(np.pi/2)
+    band = 1.96 * sigma
+
+    return {
+        "preds": np.array(preds),
+        "band": float(band),
+        "cv_mae": float(best["mae"]),
+        "cv_r2": float(best["r2"]),
+        "alpha": float(best["alpha"]),
+        "coef": coef_series
+    }
+
+# ====== ONGLET PROJECTIONS (remplace ton with tabs[2]) ======
 with tabs[2]:
-    st.markdown('<div class="hero"><span class="pill">📈 Projections par Régression Linéaire</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero"><span class="pill">📈 Projections avancées (séries par match, lags, wellness)</span></div>', unsafe_allow_html=True)
     st.write("")
-    if player_id is not None and not df_match.empty and show_predictions:
+
+    if player_id is None or df_match.empty:
+        st.info("Sélectionne un joueur avec des matchs.")
+    else:
         dm = df_match[df_match["PlayerID_norm"] == player_id].copy()
-        if not dm.empty and len(dm) >= 5:
-            st.markdown("#### 🔮 Prédictions de KPIs par Régression Linéaire")
-            st.info("💡 Les prédictions sont basées sur un modèle de régression linéaire manuelle (sans sklearn).")
-            dm_ml = dm.reset_index(drop=True)
-            dm_ml['match_number'] = range(1, len(dm_ml) + 1)
-            # Ajouter les minutes jouées comme option de prédiction
+        if len(dm) < 5:
+            st.info("Données insuffisantes (≥ 5 matchs) pour calibrer un modèle.")
+        else:
+            per_match = build_per_match_kpis(dm, player_id, df_players)
+            per_match = merge_wellness_features(per_match, df_well if not df_well.empty else None)
+
+            # KPIs par match à prédire
             kpi_options = {
-                'Précision Passes': 'pass_accuracy',
-                'xG Généré (/90)': 'xg_per_90',
-                'Taux Duel Gagné': 'duel_win_rate',
-                'Passes Progressives (/90)': 'prog_passes_per_90',
-                'Interceptions (/90)': 'interceptions_per_90',
-                'Minutes Jouées': 'minutes_jouees'
+                "Précision Passes (%)": "pass_accuracy",
+                "xG / 90": "xg_per_90",
+                "Taux Duel Gagné (%)": "duel_win_rate",
+                "Passes Progressives / 90": "prog_passes_per_90",
+                "Interceptions / 90": "interceptions_per_90",
+                "Minutes Jouées": "minutes_jouees",
             }
-            selected_kpi_name = st.selectbox("KPI à prédire", list(kpi_options.keys()), key="ml_kpi_select")
-            selected_kpi_key = kpi_options[selected_kpi_name]
-            periods_ahead = st.slider("Nombre de matchs à prédire", 1, 10, 5, key="ml_periods")
-            historical_kpis = []
-            for i in range(len(dm_ml)):
-                match_slice = dm_ml.iloc[:i+1]
-                total_min = to_num(match_slice.get("Minutes Jouées", 0)).sum()
-                total_matches = len(match_slice)
-                if selected_kpi_key == 'minutes_jouees':
-                    # Pour les minutes jouées, on prend simplement les minutes du match
-                    current_match_minutes = to_num(match_slice.iloc[-1].get("Minutes Jouées", 0)).iloc[0]
-                    historical_kpis.append(current_match_minutes)
+            col_sel1, col_sel2 = st.columns([2,1])
+            with col_sel1:
+                kpi_label = st.selectbox("🎯 KPI à prédire (par match)", list(kpi_options.keys()))
+            with col_sel2:
+                horizon = st.slider("🔮 Horizon (matchs)", 1, 10, 5)
+
+            target_col = kpi_options[kpi_label]
+            feat_df = add_lag_rolling_features(per_match, target_col)
+
+            # Choix du modèle
+            model_choices = ["EWMA (baseline)"]
+            if SKLEARN_OK:
+                model_choices.append("Ridge (lags + rolling + wellness)")
+            model_name = st.radio("🧠 Modèle", model_choices, horizontal=True)
+
+            y_hist = feat_df[target_col]
+            x_axis = per_match["match_number"]
+
+            res = None
+            if model_name.startswith("EWMA"):
+                alpha = st.slider("α (lissage exponentiel)", 0.05, 0.9, 0.4, 0.05)
+                preds, sigma = ewma_forecast(y_hist, horizon, alpha=alpha)
+                band = 1.96 * sigma
+                cv_mae, cv_r2 = np.nan, np.nan
+                top_coef = None
+            else:
+                res = ridge_ts_forecast(feat_df, target_col, horizon)
+                if res is None:
+                    st.warning("Pas assez de données propres pour Ridge. Bascule en EWMA.")
+                    preds, sigma = ewma_forecast(y_hist, horizon, alpha=0.4)
+                    band = 1.96 * sigma
+                    cv_mae, cv_r2 = np.nan, np.nan
+                    top_coef = None
                 else:
-                    kpi_dict = calculate_kpis(match_slice, total_min, total_matches, player_id, df_players)
-                    historical_kpis.append(kpi_dict[selected_kpi_key])
-            dm_ml['target_kpi'] = historical_kpis
-            X = dm_ml['match_number'].values
-            y = dm_ml['target_kpi'].values
-            n = len(X)
-            split_idx = int(0.8 * n)
-            X_train, X_test = X[:split_idx], X[split_idx:]
-            y_train, y_test = y[:split_idx], y[split_idx:]
-            model = predict_performance_trend_manual(X_train, y_train, periods_ahead)
-            if model:
-                all_match_numbers = np.arange(1, len(dm_ml) + periods_ahead + 1)
-                y_pred_full = model['slope'] * all_match_numbers + model['intercept']
-                y_pred_train = model['slope'] * X_train + model['intercept']
-                mae = np.mean(np.abs(y_train - y_pred_train))
-                confidence_interval = 1.96 * mae
-                fig_ml = go.Figure()
-                fig_ml.add_trace(go.Scatter(
-                    x=dm_ml['match_number'],
-                    y=dm_ml['target_kpi'],
-                    mode='markers+lines',
-                    name='Valeurs Réelles',
-                    marker=dict(size=8, color='#3b82f6'),
-                    line=dict(color='#3b82f6', width=2)
-                ))
-                fig_ml.add_trace(go.Scatter(
-                    x=all_match_numbers,
-                    y=y_pred_full,
-                    mode='lines',
-                    name='Prédictions ML',
-                    line=dict(color='#10b981', width=3, dash='dash')
-                ))
-                fig_ml.add_trace(go.Scatter(
-                    x=all_match_numbers,
-                    y=y_pred_full + confidence_interval,
-                    mode='lines',
-                    line=dict(width=0),
-                    showlegend=False,
-                    hoverinfo='skip'
-                ))
-                fig_ml.add_trace(go.Scatter(
-                    x=all_match_numbers,
-                    y=y_pred_full - confidence_interval,
-                    mode='lines',
-                    fill='tonexty',
-                    fillcolor='rgba(16, 185, 129, 0.2)',
-                    line=dict(width=0),
-                    name='Intervalle 95%',
-                    hoverinfo='skip'
-                ))
-                # Ajuster l'axe y pour les minutes jouées
-                if selected_kpi_key == 'minutes_jouees':
-                    fig_ml.update_layout(
-                        title=f"Prédiction du KPI '{selected_kpi_name}'",
-                        xaxis_title="Numéro de Match",
-                        yaxis_title=selected_kpi_name,
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        font=dict(color='#e2e8f0'),
-                        hovermode='x unified',
-                        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
-                        yaxis=dict(range=[0, 95])  # Limiter à 95 minutes
-                    )
+                    preds = res["preds"]
+                    band = res["band"]
+                    cv_mae, cv_r2 = res["cv_mae"], res["cv_r2"]
+                    top_coef = res["coef"].head(8)
+
+            # Index futurs
+            future_idx = np.arange(int(x_axis.iloc[-1]) + 1, int(x_axis.iloc[-1]) + horizon + 1)
+
+            # Plot
+            fig_ml = go.Figure()
+            fig_ml.add_trace(go.Scatter(
+                x=x_axis, y=y_hist, mode='lines+markers',
+                name='Valeurs Réelles', marker=dict(size=7, color='#3b82f6'),
+                line=dict(color='#3b82f6', width=2)
+            ))
+            fig_ml.add_trace(go.Scatter(
+                x=future_idx, y=preds, mode='lines+markers',
+                name='Prévision', line=dict(color='#10b981', width=3, dash='dash'),
+                marker=dict(size=7, color='#10b981')
+            ))
+            fig_ml.add_trace(go.Scatter(
+                x=np.concatenate([future_idx, future_idx[::-1]]),
+                y=np.concatenate([preds + band, (preds - band)[::-1]]),
+                fill='toself', fillcolor='rgba(16,185,129,0.15)', line=dict(width=0),
+                hoverinfo='skip', name='Intervalle 95%'
+            ))
+            fig_ml.update_layout(
+                title=f"Prédiction '{kpi_label}' (par match)",
+                xaxis_title="Numéro de match",
+                yaxis_title=kpi_label,
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#e2e8f0'),
+                hovermode='x unified',
+                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+            )
+            st.plotly_chart(fig_ml, use_container_width=True)
+
+            # Métriques + drivers
+            m1, m2, m3 = st.columns(3)
+            if model_name.startswith("EWMA"):
+                m1.metric("📏 Bande 95% (≈)", f"±{band:.2f}")
+                m2.metric("📈 Modèle", "EWMA", f"α={alpha}")
+                m3.metric("🧪 Historique", f"{len(y_hist)} matchs")
+            else:
+                if res is not None:
+                    m1.metric("📏 MAE (CV)", f"{res['cv_mae']:.2f}")
+                    m2.metric("🎯 R² (CV)", f"{res['cv_r2']:.2f}")
+                    m3.metric("🧠 Alpha Ridge", f"{res['alpha']:.2f}")
+                    if top_coef is not None and not top_coef.empty:
+                        st.markdown("##### 🔍 Principaux drivers (Ridge)")
+                        drivers = pd.DataFrame({
+                            "Feature": top_coef.index.str.replace("_", " "),
+                            "Poids": top_coef.values
+                        })
+                        fig_coef = px.bar(drivers, x="Feature", y="Poids", title="Importance (coefficients absolus)",
+                                          labels={"Feature": "Variable", "Poids": "Coefficient"})
+                        fig_coef.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#e2e8f0'))
+                        st.plotly_chart(fig_coef, use_container_width=True)
                 else:
-                    fig_ml.update_layout(
-                        title=f"Prédiction du KPI '{selected_kpi_name}'",
-                        xaxis_title="Numéro de Match",
-                        yaxis_title=selected_kpi_name,
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        font=dict(color='#e2e8f0'),
-                        hovermode='x unified',
-                        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
-                    )
-                st.plotly_chart(fig_ml, use_container_width=True)
-                if len(X_test) > 0:
-                    y_pred_test = model['slope'] * X_test + model['intercept']
-                    ss_res = np.sum((y_test - y_pred_test) ** 2)
-                    ss_tot = np.sum((y_test - np.mean(y_test)) ** 2)
-                    r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-                else:
-                    r2 = model['r_squared']
-                col1, col2, col3 = st.columns(3)
-                col1.metric("📈 Pente", f"{model['slope']:.3f}", "par match")
-                col2.metric("🎯 R² Score", f"{r2:.2f}", "Qualité du modèle")
-                col3.metric("📏 MAE", f"{mae:.2f}", "Erreur moyenne")
-                if model['slope'] > 0.1:
-                    trend_text = "📈 Tendance fortement positive - Continuez comme ça !"
-                elif model['slope'] > 0:
-                    trend_text = "↗️ Tendance positive - Bonne progression."
-                elif model['slope'] > -0.1:
-                    trend_text = "➡️ Tendance stable - Cherchez à vous améliorer."
-                else:
-                    trend_text = "📉 Tendance négative - Travaillez sur ce point."
-                st.success(f"**Interprétation :** {trend_text}")
+                    m1.metric("📏 Bande 95% (≈)", f"±{band:.2f}")
+                    m2.metric("ℹ️ Modèle", "EWMA (fallback)")
+                    m3.metric("🧪 Historique", f"{len(y_hist)} matchs")
+
+            # Simulateur "et si ?"
+            st.markdown("##### 🧪 Et si on changeait la préparation du prochain match ?")
+            if "w_Energie générale" in feat_df.columns or "w_Fraicheur musculaire" in feat_df.columns:
+                delta_energy = st.slider("Δ Énergie générale (points)", -2, 2, 0)
+                delta_fresh  = st.slider("Δ Fraîcheur musculaire (points)", -2, 2, 0)
+
+                if model_name.startswith("EWMA"):
+                    st.info("Le modèle EWMA n'utilise pas les features wellness ; bascule sur Ridge pour tester l'impact.")
+                elif SKLEARN_OK and res is not None:
+                    df_all = add_lag_rolling_features(merge_wellness_features(per_match, df_well if not df_well.empty else None), target_col)
+                    drop_cols = {"match_number","DATE","Journée","Adversaire"}
+                    X_cols = [c for c in df_all.columns if c not in drop_cols.union({target_col})]
+                    df_all = df_all.dropna(subset=[target_col] + X_cols)
+                    if len(df_all) >= 12:
+                        mdl = Ridge(alpha=res["alpha"], fit_intercept=True)
+                        mdl.fit(df_all[X_cols].values, df_all[target_col].values)
+
+                        last = df_all.tail(1).copy()
+                        if "w_Energie générale" in last.columns:
+                            last["w_Energie générale"] = (last["w_Energie générale"] + delta_energy).clip(0, 10)
+                        if "w_Fraicheur musculaire" in last.columns:
+                            last["w_Fraicheur musculaire"] = (last["w_Fraicheur musculaire"] + delta_fresh).clip(0, 10)
+
+                        yhat_next = float(mdl.predict(last[X_cols].values)[0])
+                        st.success(f"➡️ Prévision ajustée (prochain match) : **{yhat_next:.2f}** {kpi_label}")
+                    else:
+                        st.info("Pas assez de données pour estimer l'impact wellness avec Ridge.")
+```
 
 # ======================= WELLNESS =======================
 # ... (tabs[3] inchangé)
